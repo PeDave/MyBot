@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "IusRqUrFv8A=",
+  "success": true,
+  "projectFilePath": "/home/runner/work/MyBot/MyBot/src/MyBot.Core/MyBot.Core.csproj",
+  "expectedPackageFiles": [
+    "/home/runner/.nuget/packages/microsoft.extensions.dependencyinjection.abstractions/10.0.3/microsoft.extensions.dependencyinjection.abstractions.10.0.3.nupkg.sha512",
+    "/home/runner/.nuget/packages/microsoft.extensions.logging.abstractions/10.0.3/microsoft.extensions.logging.abstractions.10.0.3.nupkg.sha512",
+    "/home/runner/.nuget/packages/system.diagnostics.diagnosticsource/10.0.3/system.diagnostics.diagnosticsource.10.0.3.nupkg.sha512"
+  ],
+  "logs": []
+}

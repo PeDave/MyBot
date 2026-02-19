@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MyBot.Console/MyBot.Console.csproj" />
+    <Project Path="src/MyBot.Core/MyBot.Core.csproj" />
+    <Project Path="src/MyBot.Exchanges/MyBot.Exchanges.csproj" />
+  </Folder>
+</Solution>
