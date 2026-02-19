@@ -78,6 +78,8 @@ if (wrappers.Count == 0)
     Console.WriteLine("  GET TICKER:  wrapper.GetTickerAsync(\"BTCUSDT\")");
     Console.WriteLine("  GET ORDERS:  wrapper.GetOpenOrdersAsync()");
     Console.WriteLine("  GET BALANCE: wrapper.GetBalancesAsync()");
+    Console.WriteLine("\nWebSocket example usage (once API keys are configured):");
+    Console.WriteLine("  await DemoWebSocketAsync(wsClient, \"BTCUSDT\", cts.Token)");
     return;
 }
 
@@ -128,3 +130,81 @@ Console.WriteLine("\nDemo complete.");
 // Dispose wrappers
 foreach (var wrapper in wrappers.OfType<IDisposable>())
     wrapper.Dispose();
+
+// -----------------------------------------------------------------------
+// WebSocket demo (uncomment and configure API keys to run)
+// -----------------------------------------------------------------------
+// Example: create a WebSocket client and call DemoWebSocketAsync:
+//   var wsClient = new BitgetWebSocketClient(apiKey, apiSecret, passphrase, logger);
+//   await DemoWebSocketAsync(wsClient, "BTCUSDT", cts.Token);
+//   wsClient.Dispose();
+
+#pragma warning disable CS8321 // Local function declared but never used (intentional — demo code)
+/// <summary>
+/// Demonstrates WebSocket subscriptions for public streams (ticker, order book, trades).
+/// For private streams (orders, balance), valid API credentials are required.
+/// </summary>
+static async Task DemoWebSocketAsync(IExchangeWebSocketClient wsClient, string wsSymbol, CancellationToken ct)
+{
+    Console.WriteLine($"\n--- {wsClient.ExchangeName} WebSocket Demo ---");
+
+    // Wire up event handlers
+    wsClient.OnTickerUpdate += (_, t) =>
+        Console.WriteLine($"  [TICKER] {t.Exchange} {t.Symbol}: Last={t.LastPrice:F2} Bid={t.BidPrice:F2} Ask={t.AskPrice:F2} Change={t.ChangePercent24h:F2}%");
+
+    wsClient.OnOrderBookUpdate += (_, ob) =>
+    {
+        var topBid = ob.Bids.FirstOrDefault();
+        var topAsk = ob.Asks.FirstOrDefault();
+        Console.WriteLine($"  [BOOK]   {ob.Exchange} {ob.Symbol}: Best Bid={topBid?.Price:F2} Best Ask={topAsk?.Price:F2}");
+    };
+
+    wsClient.OnTradeUpdate += (_, t) =>
+        Console.WriteLine($"  [TRADE]  {t.Exchange} {t.Symbol}: {t.TakerSide} {t.Quantity:F6} @ {t.Price:F2}");
+
+    wsClient.OnOrderUpdate += (_, o) =>
+        Console.WriteLine($"  [ORDER]  {o.Exchange} {o.Symbol} #{o.OrderId}: {o.Status} filled={o.QuantityFilled:F6}/{o.Quantity:F6}");
+
+    wsClient.OnBalanceUpdate += (_, b) =>
+        Console.WriteLine($"  [BAL]    {b.Exchange} {b.Asset}: avail={b.Available:F8} locked={b.Locked:F8}");
+
+    wsClient.OnError += (_, err) =>
+        Console.WriteLine($"  [ERROR]  {wsClient.ExchangeName}: {err}");
+
+    try
+    {
+        // Connect (lightweight — actual connections open on first subscription)
+        await wsClient.ConnectAsync(ct);
+
+        // Subscribe to public streams
+        await wsClient.SubscribeToTickerAsync(wsSymbol, ct);
+        Console.WriteLine($"  Subscribed to ticker for {wsSymbol}");
+
+        await wsClient.SubscribeToOrderBookAsync(wsSymbol, 5, ct);
+        Console.WriteLine($"  Subscribed to order book for {wsSymbol} (depth=5)");
+
+        await wsClient.SubscribeToTradesAsync(wsSymbol, ct);
+        Console.WriteLine($"  Subscribed to trades for {wsSymbol}");
+
+        // Subscribe to private streams (requires valid API credentials)
+        // await wsClient.SubscribeToUserOrdersAsync(ct);
+        // await wsClient.SubscribeToUserBalanceAsync(ct);
+
+        Console.WriteLine($"  Listening for 15 seconds... (press Ctrl+C to stop)");
+        await Task.Delay(TimeSpan.FromSeconds(15), ct);
+    }
+    catch (OperationCanceledException)
+    {
+        // Normal shutdown
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"  WebSocket error: {ex.Message}");
+    }
+    finally
+    {
+        await wsClient.DisconnectAsync();
+        Console.WriteLine($"  Disconnected from {wsClient.ExchangeName} WebSocket.");
+    }
+}
+#pragma warning restore CS8321
