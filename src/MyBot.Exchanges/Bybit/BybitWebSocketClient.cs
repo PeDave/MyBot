@@ -20,6 +20,7 @@ public class BybitWebSocketClient : IExchangeWebSocketClient
     private readonly BybitSocketClient _socketClient;
     private readonly ILogger<BybitWebSocketClient> _logger;
     private readonly Dictionary<string, UpdateSubscription> _subscriptions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, BybitSymbolOrderBook> _orderBooks = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _lock = new(1, 1);
     private bool _connected;
     private bool _disposed;
@@ -76,6 +77,9 @@ public class BybitWebSocketClient : IExchangeWebSocketClient
             foreach (var sub in _subscriptions.Values)
                 await sub.CloseAsync();
             _subscriptions.Clear();
+            foreach (var ob in _orderBooks.Values)
+                await ob.StopAsync();
+            _orderBooks.Clear();
             _connected = false;
         }
         finally
@@ -289,18 +293,12 @@ public class BybitWebSocketClient : IExchangeWebSocketClient
         _ => MyBot.Core.Models.OrderStatus.Unknown
     };
 
-    // Separate dictionary for order books since they don't use UpdateSubscription
-    private readonly Dictionary<string, BybitSymbolOrderBook> _orderBooks = new(StringComparer.OrdinalIgnoreCase);
-
     /// <inheritdoc />
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
         DisconnectAsync().GetAwaiter().GetResult();
-        foreach (var ob in _orderBooks.Values)
-            ob.StopAsync().GetAwaiter().GetResult();
-        _orderBooks.Clear();
         _socketClient.Dispose();
         _lock.Dispose();
     }

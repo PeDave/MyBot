@@ -85,8 +85,7 @@ public class BitgetWebSocketClient : IExchangeWebSocketClient
     /// <inheritdoc />
     public async Task SubscribeToTickerAsync(string symbol, CancellationToken cancellationToken = default)
     {
-        const string prefix = "ticker-";
-        var key = prefix + symbol;
+        var key = "ticker-" + symbol;
         var result = await _socketClient.SpotApiV2.SubscribeToTickerUpdatesAsync(symbol, data =>
         {
             foreach (var t in data.Data)
