@@ -156,6 +156,7 @@ public class BybitWrapper : IExchangeWrapper, IDisposable
     {
         try
         {
+            // openOnly=0 means "open orders only" per Bybit V5 API spec
             var result = await _client.V5Api.Trading.GetOrdersAsync(
                 BybitCategory.Spot, symbol, openOnly: 0, ct: cancellationToken);
 

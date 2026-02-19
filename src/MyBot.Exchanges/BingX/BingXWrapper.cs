@@ -101,7 +101,8 @@ public class BingXWrapper : IExchangeWrapper, IDisposable
     {
         try
         {
-            var longOrderId = long.TryParse(orderId, out var parsed) ? (long?)parsed : null;
+            var longOrderId = long.TryParse(orderId, out var parsedCancel) ? (long?)parsedCancel
+                : throw new ExchangeException(ExchangeName, $"Invalid orderId format for BingX: '{orderId}' (must be a numeric ID)");
             var result = await _client.SpotApi.Trading.CancelOrderAsync(symbol, longOrderId, ct: cancellationToken);
             if (!result.Success)
                 throw new ExchangeException(ExchangeName, result.Error?.Message ?? "Failed to cancel order", result.Error?.Code?.ToString());
@@ -132,7 +133,8 @@ public class BingXWrapper : IExchangeWrapper, IDisposable
     {
         try
         {
-            var longOrderId = long.TryParse(orderId, out var parsed) ? (long?)parsed : null;
+            var longOrderId = long.TryParse(orderId, out var parsedGet) ? (long?)parsedGet
+                : throw new ExchangeException(ExchangeName, $"Invalid orderId format for BingX: '{orderId}' (must be a numeric ID)");
             var result = await _client.SpotApi.Trading.GetOrderAsync(symbol, longOrderId, ct: cancellationToken);
             if (!result.Success)
                 throw new ExchangeException(ExchangeName, result.Error?.Message ?? "Failed to get order", result.Error?.Code?.ToString());

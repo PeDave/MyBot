@@ -140,7 +140,10 @@ public class MexcWrapper : IExchangeWrapper, IDisposable
     {
         try
         {
-            var result = await _client.SpotApi.Trading.GetOrdersAsync(symbol!, limit: limit, ct: cancellationToken);
+            // MEXC GetOrdersAsync requires a non-null symbol; return empty when none provided
+            if (symbol is null)
+                return Enumerable.Empty<UnifiedOrder>();
+            var result = await _client.SpotApi.Trading.GetOrdersAsync(symbol, limit: limit, ct: cancellationToken);
             if (!result.Success)
                 throw new ExchangeException(ExchangeName, result.Error?.Message ?? "Failed to get order history", result.Error?.Code?.ToString());
 
