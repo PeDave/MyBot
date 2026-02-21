@@ -38,6 +38,11 @@ public interface IExchangeWrapper
     Task<IEnumerable<UnifiedTrade>> GetRecentTradesAsync(string symbol, int limit = 50, CancellationToken cancellationToken = default);
 
     /// <summary>Gets historical OHLCV kline/candle data for a symbol.</summary>
-    Task<IEnumerable<UnifiedKline>> GetKlinesAsync(string symbol, string timeframe, DateTime startTime, DateTime endTime, int limit = 200, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException($"GetKlinesAsync is not supported by this exchange wrapper.");
+    /// <param name="symbol">Trading symbol (e.g., "BTCUSDT").</param>
+    /// <param name="timeframe">Timeframe: "1m", "5m", "15m", "30m", "1h", "4h", "1d".</param>
+    /// <param name="startTime">Start time for historical data.</param>
+    /// <param name="endTime">End time for historical data.</param>
+    /// <param name="limit">Maximum number of candles to return (default 200, max varies by exchange).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<IEnumerable<UnifiedKline>> GetKlinesAsync(string symbol, string timeframe, DateTime startTime, DateTime endTime, int limit = 200, CancellationToken cancellationToken = default);
 }
