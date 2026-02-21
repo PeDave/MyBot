@@ -28,6 +28,7 @@ var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
 // Build exchange wrappers from configuration
 var exchangeSettings = configuration.GetSection("ExchangeSettings");
 var wrappers = new List<IExchangeWrapper>();
+var wsClients = new List<IExchangeWebSocketClient>();
 
 var bitgetSection = exchangeSettings.GetSection("Bitget");
 if (!string.IsNullOrEmpty(bitgetSection["ApiKey"]))
@@ -37,6 +38,11 @@ if (!string.IsNullOrEmpty(bitgetSection["ApiKey"]))
         bitgetSection["ApiSecret"]!,
         bitgetSection["Passphrase"]!,
         loggerFactory.CreateLogger<BitgetWrapper>()));
+    wsClients.Add(new BitgetWebSocketClient(
+        bitgetSection["ApiKey"]!,
+        bitgetSection["ApiSecret"]!,
+        bitgetSection["Passphrase"]!,
+        loggerFactory.CreateLogger<BitgetWebSocketClient>()));
 }
 
 var bingxSection = exchangeSettings.GetSection("BingX");
@@ -46,6 +52,10 @@ if (!string.IsNullOrEmpty(bingxSection["ApiKey"]))
         bingxSection["ApiKey"]!,
         bingxSection["ApiSecret"]!,
         loggerFactory.CreateLogger<BingXWrapper>()));
+    wsClients.Add(new BingXWebSocketClient(
+        bingxSection["ApiKey"]!,
+        bingxSection["ApiSecret"]!,
+        loggerFactory.CreateLogger<BingXWebSocketClient>()));
 }
 
 var mexcSection = exchangeSettings.GetSection("Mexc");
@@ -55,6 +65,10 @@ if (!string.IsNullOrEmpty(mexcSection["ApiKey"]))
         mexcSection["ApiKey"]!,
         mexcSection["ApiSecret"]!,
         loggerFactory.CreateLogger<MexcWrapper>()));
+    wsClients.Add(new MexcWebSocketClient(
+        mexcSection["ApiKey"]!,
+        mexcSection["ApiSecret"]!,
+        loggerFactory.CreateLogger<MexcWebSocketClient>()));
 }
 
 var bybitSection = exchangeSettings.GetSection("Bybit");
@@ -64,6 +78,10 @@ if (!string.IsNullOrEmpty(bybitSection["ApiKey"]))
         bybitSection["ApiKey"]!,
         bybitSection["ApiSecret"]!,
         loggerFactory.CreateLogger<BybitWrapper>()));
+    wsClients.Add(new BybitWebSocketClient(
+        bybitSection["ApiKey"]!,
+        bybitSection["ApiSecret"]!,
+        loggerFactory.CreateLogger<BybitWebSocketClient>()));
 }
 
 if (wrappers.Count == 0)
@@ -78,10 +96,16 @@ if (wrappers.Count == 0)
     Console.WriteLine("  GET TICKER:  wrapper.GetTickerAsync(\"BTCUSDT\")");
     Console.WriteLine("  GET ORDERS:  wrapper.GetOpenOrdersAsync()");
     Console.WriteLine("  GET BALANCE: wrapper.GetBalancesAsync()");
+    Console.WriteLine("\nWebSocket example usage:");
+    Console.WriteLine("  SUBSCRIBE TICKER:    wsClient.SubscribeToTickerAsync(\"BTCUSDT\")");
+    Console.WriteLine("  SUBSCRIBE ORDERBOOK: wsClient.SubscribeToOrderBookAsync(\"BTCUSDT\")");
+    Console.WriteLine("  SUBSCRIBE TRADES:    wsClient.SubscribeToTradesAsync(\"BTCUSDT\")");
+    Console.WriteLine("  SUBSCRIBE ORDERS:    wsClient.SubscribeToUserOrdersAsync()");
+    Console.WriteLine("  SUBSCRIBE BALANCE:   wsClient.SubscribeToUserBalanceAsync()");
     return;
 }
 
-// Demo: fetch public market data (no API key needed)
+// Demo: fetch public market data via REST API
 Console.WriteLine("MyBot - Cryptocurrency Exchange Wrapper Demo");
 Console.WriteLine("============================================\n");
 
@@ -90,7 +114,7 @@ using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
 foreach (var wrapper in wrappers)
 {
-    Console.WriteLine($"\n--- {wrapper.ExchangeName} ---");
+    Console.WriteLine($"\n--- {wrapper.ExchangeName} (REST) ---");
     try
     {
         // Ticker
@@ -123,8 +147,103 @@ foreach (var wrapper in wrappers)
     }
 }
 
+// Demo: WebSocket real-time data
+Console.WriteLine("\n\nMyBot - WebSocket Demo");
+Console.WriteLine("======================\n");
+Console.WriteLine($"Subscribing to {symbol} streams for 10 seconds...\n");
+
+using var wsCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+foreach (var wsClient in wsClients)
+{
+    Console.WriteLine($"--- {wsClient.ExchangeName} (WebSocket) ---");
+
+    // Attach event handlers
+    wsClient.OnTickerUpdate += (_, update) =>
+        Console.WriteLine($"  [{update.Exchange}] TICKER {update.Symbol}: {update.LastPrice:F2} ({update.ChangePercent24h:F2}%)");
+
+    wsClient.OnOrderBookUpdate += (_, update) =>
+    {
+        var topBid = update.Bids.FirstOrDefault();
+        var topAsk = update.Asks.FirstOrDefault();
+        Console.WriteLine($"  [{update.Exchange}] ORDERBOOK {update.Symbol}: Bid={topBid?.Price:F2} Ask={topAsk?.Price:F2}");
+    };
+
+    wsClient.OnTradeUpdate += (_, update) =>
+        Console.WriteLine($"  [{update.Exchange}] TRADE {update.Symbol}: {update.Price:F2} x {update.Quantity:F6} ({update.TakerSide})");
+
+    wsClient.OnOrderUpdate += (_, update) =>
+        Console.WriteLine($"  [{update.Exchange}] ORDER {update.OrderId}: {update.Symbol} {update.Side} {update.Status}");
+
+    wsClient.OnBalanceUpdate += (_, update) =>
+        Console.WriteLine($"  [{update.Exchange}] BALANCE {update.Asset}: {update.Available:F8} available");
+
+    wsClient.OnError += (_, error) =>
+        Console.WriteLine($"  [{wsClient.ExchangeName}] ERROR: {error}");
+
+    try
+    {
+        // Subscribe to public streams
+        await wsClient.SubscribeToTickerAsync(symbol, wsCts.Token);
+        Console.WriteLine($"  Subscribed to ticker for {symbol}");
+
+        await wsClient.SubscribeToOrderBookAsync(symbol, 5, wsCts.Token);
+        Console.WriteLine($"  Subscribed to order book for {symbol}");
+
+        await wsClient.SubscribeToTradesAsync(symbol, wsCts.Token);
+        Console.WriteLine($"  Subscribed to trades for {symbol}");
+
+        // Subscribe to private streams (only if authenticated)
+        try
+        {
+            await wsClient.SubscribeToUserOrdersAsync(wsCts.Token);
+            Console.WriteLine("  Subscribed to user orders");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  Skipping user orders: {ex.Message}");
+        }
+
+        try
+        {
+            await wsClient.SubscribeToUserBalanceAsync(wsCts.Token);
+            Console.WriteLine("  Subscribed to user balance");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  Skipping user balance: {ex.Message}");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"  Error during subscription: {ex.Message}");
+    }
+}
+
+// Wait for WebSocket data
+Console.WriteLine("\nReceiving real-time data for 10 seconds (press Ctrl+C to stop)...\n");
+await Task.Delay(TimeSpan.FromSeconds(10), CancellationToken.None);
+
+// Disconnect all WebSocket clients
+Console.WriteLine("\nDisconnecting WebSocket clients...");
+foreach (var wsClient in wsClients)
+{
+    try
+    {
+        await wsClient.DisconnectAsync();
+        Console.WriteLine($"  {wsClient.ExchangeName}: disconnected");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"  {wsClient.ExchangeName}: error during disconnect - {ex.Message}");
+    }
+}
+
 Console.WriteLine("\nDemo complete.");
 
-// Dispose wrappers
+// Dispose wrappers and WebSocket clients
 foreach (var wrapper in wrappers.OfType<IDisposable>())
     wrapper.Dispose();
+foreach (var wsClient in wsClients)
+    wsClient.Dispose();
+
