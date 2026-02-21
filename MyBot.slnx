@@ -3,5 +3,7 @@
     <Project Path="src/MyBot.Console/MyBot.Console.csproj" />
     <Project Path="src/MyBot.Core/MyBot.Core.csproj" />
     <Project Path="src/MyBot.Exchanges/MyBot.Exchanges.csproj" />
+    <Project Path="src/MyBot.Backtesting/MyBot.Backtesting.csproj" />
+    <Project Path="src/MyBot.Backtesting.Console/MyBot.Backtesting.Console.csproj" />
   </Folder>
 </Solution>

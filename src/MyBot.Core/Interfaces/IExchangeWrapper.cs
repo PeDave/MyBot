@@ -36,4 +36,8 @@ public interface IExchangeWrapper
 
     /// <summary>Gets recent trades for a symbol.</summary>
     Task<IEnumerable<UnifiedTrade>> GetRecentTradesAsync(string symbol, int limit = 50, CancellationToken cancellationToken = default);
+
+    /// <summary>Gets historical OHLCV kline/candle data for a symbol.</summary>
+    Task<IEnumerable<UnifiedKline>> GetKlinesAsync(string symbol, string timeframe, DateTime startTime, DateTime endTime, int limit = 200, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException($"GetKlinesAsync is not supported by this exchange wrapper.");
 }
