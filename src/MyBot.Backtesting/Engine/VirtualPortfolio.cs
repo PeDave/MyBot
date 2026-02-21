@@ -2,6 +2,21 @@ using MyBot.Backtesting.Models;
 
 namespace MyBot.Backtesting.Engine;
 
+/// <summary>Tracks open trade risk management levels for stop-loss, take-profit, and trailing stops.</summary>
+public class OpenTradeInfo
+{
+    /// <summary>Entry price of the open trade.</summary>
+    public decimal EntryPrice { get; set; }
+    /// <summary>Stop-loss price level (0 = not set).</summary>
+    public decimal StopLoss { get; set; }
+    /// <summary>Take-profit price level (null = not set).</summary>
+    public decimal? TakeProfit { get; set; }
+    /// <summary>Highest price observed since trade entry (used for trailing stops).</summary>
+    public decimal HighestPriceSinceEntry { get; set; }
+    /// <summary>Trailing stop price level (null = not set).</summary>
+    public decimal? TrailingStop { get; set; }
+}
+
 /// <summary>Simulates a virtual portfolio for backtesting, tracking cash, holdings, and trades.</summary>
 public class VirtualPortfolio
 {
@@ -15,6 +30,8 @@ public class VirtualPortfolio
     public List<Trade> Trades { get; set; } = new();
     /// <summary>Current open trade (if any).</summary>
     public Trade? OpenTrade { get; set; }
+    /// <summary>Risk management info for the current open trade (stop-loss, take-profit, trailing stop).</summary>
+    public OpenTradeInfo? OpenTradeInfo { get; set; }
     /// <summary>The initial balance when the portfolio was created.</summary>
     public decimal InitialBalance { get; }
 
@@ -63,6 +80,11 @@ public class VirtualPortfolio
             Direction = TradeDirection.Long,
             Fees = fee
         };
+        OpenTradeInfo = new OpenTradeInfo
+        {
+            EntryPrice = price,
+            HighestPriceSinceEntry = price
+        };
     }
 
     /// <summary>Executes a sell, crediting cash and closing the open trade.</summary>
@@ -87,6 +109,7 @@ public class VirtualPortfolio
             OpenTrade.ProfitLossPercentage = entryCost > 0 ? (OpenTrade.ProfitLoss / entryCost) * 100m : 0m;
             Trades.Add(OpenTrade);
             OpenTrade = null;
+            OpenTradeInfo = null;
         }
     }
 }

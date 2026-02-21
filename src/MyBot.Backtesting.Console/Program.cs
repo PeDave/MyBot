@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using MyBot.Backtesting.Data;
 using MyBot.Backtesting.Engine;
 using MyBot.Backtesting.Models;
+using MyBot.Backtesting.Optimization;
 using MyBot.Backtesting.Reports;
 using MyBot.Backtesting.Strategies;
 using MyBot.Backtesting.Strategies.Examples;
@@ -90,7 +91,7 @@ var reporter = new BacktestReportGenerator();
 var results = new List<BacktestResult>();
 
 // ─── Strategy 1: SMA Crossover ────────────────────────────────────────────────
-Console.WriteLine("Running Strategy 1/3: SMA Crossover (50/200)...");
+Console.WriteLine("Running Strategy 1/7: SMA Crossover (50/200)...");
 var smaStrategy = new SmaCrossoverStrategy();
 smaStrategy.Initialize(new StrategyParameters
 {
@@ -104,7 +105,7 @@ results.Add(smaResult);
 reporter.PrintSummary(smaResult);
 
 // ─── Strategy 2: RSI Mean Reversion ──────────────────────────────────────────
-Console.WriteLine("\nRunning Strategy 2/3: RSI Mean Reversion (period=14, 30/70)...");
+Console.WriteLine("\nRunning Strategy 2/7: RSI Mean Reversion (period=14, 30/70)...");
 var rsiStrategy = new RsiMeanReversionStrategy();
 rsiStrategy.Initialize(new StrategyParameters
 {
@@ -119,7 +120,7 @@ results.Add(rsiResult);
 reporter.PrintSummary(rsiResult);
 
 // ─── Strategy 3: MACD Trend ───────────────────────────────────────────────────
-Console.WriteLine("\nRunning Strategy 3/3: MACD Trend (12/26/9)...");
+Console.WriteLine("\nRunning Strategy 3/7: MACD Trend (12/26/9)...");
 var macdStrategy = new MacdTrendStrategy();
 macdStrategy.Initialize(new StrategyParameters
 {
@@ -132,6 +133,70 @@ macdResult.Symbol = symbol;
 macdResult.Timeframe = timeframe;
 results.Add(macdResult);
 reporter.PrintSummary(macdResult);
+
+// ─── Strategy 4: Bollinger Bands Breakout ─────────────────────────────────────
+Console.WriteLine("\nRunning Strategy 4/7: Bollinger Bands Breakout...");
+var bbStrategy = new BollingerBandsStrategy();
+bbStrategy.Initialize(new StrategyParameters
+{
+    ["BollingerPeriod"] = 20,
+    ["StdDevMultiplier"] = 2.0m,
+    ["StopLossPercent"] = 0.02m,
+    ["TakeProfitPercent"] = 0.04m
+});
+var bbResult = engine.RunBacktest(bbStrategy, candles, config.InitialBalance, config);
+bbResult.Symbol = symbol;
+bbResult.Timeframe = timeframe;
+results.Add(bbResult);
+reporter.PrintSummary(bbResult);
+
+// ─── Strategy 5: Triple EMA + RSI ─────────────────────────────────────────────
+Console.WriteLine("\nRunning Strategy 5/7: Triple EMA + RSI...");
+var tripleEmaStrategy = new TripleEmaRsiStrategy();
+tripleEmaStrategy.Initialize(new StrategyParameters
+{
+    ["FastEmaPeriod"] = 8,
+    ["MidEmaPeriod"] = 21,
+    ["SlowEmaPeriod"] = 55,
+    ["RsiPeriod"] = 14,
+    ["TrailingStopPercent"] = 0.05m
+});
+var tripleEmaResult = engine.RunBacktest(tripleEmaStrategy, candles, config.InitialBalance, config);
+tripleEmaResult.Symbol = symbol;
+tripleEmaResult.Timeframe = timeframe;
+results.Add(tripleEmaResult);
+reporter.PrintSummary(tripleEmaResult);
+
+// ─── Strategy 6: Support/Resistance Breakout ──────────────────────────────────
+Console.WriteLine("\nRunning Strategy 6/7: Support/Resistance Breakout...");
+var srStrategy = new SupportResistanceStrategy();
+srStrategy.Initialize(new StrategyParameters
+{
+    ["LookbackPeriod"] = 50,
+    ["BreakoutThreshold"] = 0.005m,
+    ["VolumeMultiplier"] = 1.5m,
+    ["RiskRewardRatio"] = 2.0m
+});
+var srResult = engine.RunBacktest(srStrategy, candles, config.InitialBalance, config);
+srResult.Symbol = symbol;
+srResult.Timeframe = timeframe;
+results.Add(srResult);
+reporter.PrintSummary(srResult);
+
+// ─── Strategy 7: Volatility Breakout (Turtle) ─────────────────────────────────
+Console.WriteLine("\nRunning Strategy 7/7: Volatility Breakout (Donchian/Turtle)...");
+var vbStrategy = new VolatilityBreakoutStrategy();
+vbStrategy.Initialize(new StrategyParameters
+{
+    ["ChannelPeriod"] = 20,
+    ["AtrPeriod"] = 14,
+    ["AtrMultiplier"] = 2.0m
+});
+var vbResult = engine.RunBacktest(vbStrategy, candles, config.InitialBalance, config);
+vbResult.Symbol = symbol;
+vbResult.Timeframe = timeframe;
+results.Add(vbResult);
+reporter.PrintSummary(vbResult);
 
 // ─── Comparison Table ─────────────────────────────────────────────────────────
 reporter.PrintComparison(results);
@@ -146,6 +211,34 @@ foreach (var r in results)
     reporter.ExportEquityCurveToCsv(r, $"./output/{safeName}_equity.csv");
     reporter.ExportToJson(r, $"./output/{safeName}_result.json");
 }
+
+// ─── Parameter Optimization ───────────────────────────────────────────────────
+Console.WriteLine("\n\n" + new string('═', 60));
+Console.WriteLine("  PARAMETER OPTIMIZATION");
+Console.WriteLine(new string('═', 60));
+
+var optimizer = new StrategyOptimizer(engine, loggerFactory.CreateLogger<StrategyOptimizer>());
+var bbOptStrategy = new BollingerBandsStrategy();
+
+var paramGrid = new ParameterGrid
+{
+    ["BollingerPeriod"] = new ParameterRange { Min = 10, Max = 30, Step = 5 },
+    ["StdDevMultiplier"] = new ParameterRange { Min = 1.5m, Max = 3.0m, Step = 0.5m },
+    ["StopLossPercent"] = new ParameterRange { Min = 0.01m, Max = 0.05m, Step = 0.01m }
+};
+
+Console.WriteLine("\nOptimizing Bollinger Bands strategy...");
+var optResult = optimizer.OptimizeParameters(bbOptStrategy, candles, paramGrid, config, OptimizationMetric.SharpeRatio);
+
+Console.WriteLine($"\nBest Parameters Found:");
+foreach (var param in optResult.BestParameters)
+    Console.WriteLine($"  {param.Key}: {param.Value}");
+
+Console.WriteLine($"\nBest Sharpe Ratio: {optResult.BestMetricValue:F3}");
+Console.WriteLine($"Total Return:      {optResult.BestBacktestResult.Metrics.TotalReturnPercentage:+0.00;-0.00}%");
+Console.WriteLine($"Tested {optResult.TotalCombinationsTested} combinations in {optResult.OptimizationDuration.TotalSeconds:F1}s");
+
+reporter.ExportOptimizationResults(optResult, "./output/bollinger_optimization.csv");
 
 Console.WriteLine("\nDemo complete.");
 
