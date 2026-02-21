@@ -302,19 +302,22 @@ public class MexcWrapper : IExchangeWrapper, IDisposable
             var result = await _client.SpotApi.ExchangeData.GetKlinesAsync(symbol, interval, startTime, endTime, limit, ct: cancellationToken);
             if (!result.Success)
                 throw new ExchangeException(ExchangeName, result.Error?.Message ?? "Failed to get klines", result.Error?.Code?.ToString());
-            return result.Data.Select(k => new UnifiedKline
-            {
-                OpenTime = k.OpenTime,
-                CloseTime = k.CloseTime,
-                Open = k.OpenPrice,
-                High = k.HighPrice,
-                Low = k.LowPrice,
-                Close = k.ClosePrice,
-                Volume = k.Volume,
-                QuoteVolume = k.QuoteVolume,
-                Symbol = symbol,
-                Exchange = ExchangeName
-            });
+            // Filter defensively to guarantee results are within the requested [startTime, endTime] range.
+            return result.Data
+                .Where(k => k.OpenTime >= startTime && k.OpenTime <= endTime)
+                .Select(k => new UnifiedKline
+                {
+                    OpenTime = k.OpenTime,
+                    CloseTime = k.CloseTime,
+                    Open = k.OpenPrice,
+                    High = k.HighPrice,
+                    Low = k.LowPrice,
+                    Close = k.ClosePrice,
+                    Volume = k.Volume,
+                    QuoteVolume = k.QuoteVolume,
+                    Symbol = symbol,
+                    Exchange = ExchangeName
+                });
         }
         catch (ExchangeException) { throw; }
         catch (Exception ex)

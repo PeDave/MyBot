@@ -315,21 +315,26 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
                 "1d" => BitgetKlineInterval.OneDay,
                 _ => throw new ArgumentException($"Unsupported timeframe: {timeframe}")
             };
-            var result = await _client.SpotApiV2.ExchangeData.GetKlinesAsync(symbol, interval, startTime, endTime, limit, ct: cancellationToken);
+            // Bitget history-candles endpoint only supports endTime + limit (not both startTime and endTime).
+            // The Where clause filters out any candles before startTime that the API may return when
+            // limit causes it to fetch further back than the requested range.
+            var result = await _client.SpotApiV2.ExchangeData.GetHistoricalKlinesAsync(symbol, interval, endTime, limit, ct: cancellationToken);
             if (!result.Success)
                 throw new ExchangeException(ExchangeName, result.Error?.Message ?? "Failed to get klines", result.Error?.Code?.ToString());
-            return result.Data.Select(k => new UnifiedKline
-            {
-                OpenTime = k.OpenTime,
-                Open = k.OpenPrice,
-                High = k.HighPrice,
-                Low = k.LowPrice,
-                Close = k.ClosePrice,
-                Volume = k.Volume,
-                QuoteVolume = k.QuoteVolume,
-                Symbol = symbol,
-                Exchange = ExchangeName
-            });
+            return result.Data
+                .Where(k => k.OpenTime >= startTime && k.OpenTime <= endTime)
+                .Select(k => new UnifiedKline
+                {
+                    OpenTime = k.OpenTime,
+                    Open = k.OpenPrice,
+                    High = k.HighPrice,
+                    Low = k.LowPrice,
+                    Close = k.ClosePrice,
+                    Volume = k.Volume,
+                    QuoteVolume = k.QuoteVolume,
+                    Symbol = symbol,
+                    Exchange = ExchangeName
+                });
         }
         catch (ExchangeException) { throw; }
         catch (Exception ex)

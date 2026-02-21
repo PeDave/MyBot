@@ -345,18 +345,20 @@ public class BybitWrapper : IExchangeWrapper, IDisposable
             var result = await _client.V5Api.ExchangeData.GetKlinesAsync(BybitCategory.Spot, symbol, interval, startTime, endTime, limit, ct: cancellationToken);
             if (!result.Success)
                 throw new ExchangeException(ExchangeName, result.Error?.Message ?? "Failed to get klines", result.Error?.Code?.ToString());
-            return result.Data.List.Select(k => new UnifiedKline
-            {
-                OpenTime = k.StartTime,
-                Open = k.OpenPrice,
-                High = k.HighPrice,
-                Low = k.LowPrice,
-                Close = k.ClosePrice,
-                Volume = k.Volume,
-                QuoteVolume = k.QuoteVolume,
-                Symbol = symbol,
-                Exchange = ExchangeName
-            });
+            return result.Data.List
+                .Where(k => k.StartTime >= startTime && k.StartTime <= endTime)
+                .Select(k => new UnifiedKline
+                {
+                    OpenTime = k.StartTime,
+                    Open = k.OpenPrice,
+                    High = k.HighPrice,
+                    Low = k.LowPrice,
+                    Close = k.ClosePrice,
+                    Volume = k.Volume,
+                    QuoteVolume = k.QuoteVolume,
+                    Symbol = symbol,
+                    Exchange = ExchangeName
+                });
         }
         catch (ExchangeException) { throw; }
         catch (Exception ex)
