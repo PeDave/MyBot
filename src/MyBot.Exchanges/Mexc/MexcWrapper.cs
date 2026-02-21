@@ -305,11 +305,13 @@ public class MexcWrapper : IExchangeWrapper, IDisposable
             return result.Data.Select(k => new UnifiedKline
             {
                 OpenTime = k.OpenTime,
+                CloseTime = k.CloseTime,
                 Open = k.OpenPrice,
                 High = k.HighPrice,
                 Low = k.LowPrice,
                 Close = k.ClosePrice,
                 Volume = k.Volume,
+                QuoteVolume = k.QuoteVolume,
                 Symbol = symbol,
                 Exchange = ExchangeName
             });

@@ -326,6 +326,7 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
                 Low = k.LowPrice,
                 Close = k.ClosePrice,
                 Volume = k.Volume,
+                QuoteVolume = k.QuoteVolume,
                 Symbol = symbol,
                 Exchange = ExchangeName
             });
