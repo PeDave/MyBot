@@ -9,6 +9,7 @@ using MexcOrderType = Mexc.Net.Enums.OrderType;
 using MexcOrderStatus = Mexc.Net.Enums.OrderStatus;
 using MexcTimeInForce = Mexc.Net.Enums.TimeInForce;
 using MexcOrder = Mexc.Net.Objects.Models.Spot.MexcOrder;
+using MexcKlineInterval = Mexc.Net.Enums.KlineInterval;
 
 namespace MyBot.Exchanges.Mexc;
 
@@ -283,5 +284,42 @@ public class MexcWrapper : IExchangeWrapper, IDisposable
         _ => TimeInForce.GoodTillCanceled
     };
 
-    public void Dispose() => _client.Dispose();
-}
+    public async Task<IEnumerable<UnifiedKline>> GetKlinesAsync(string symbol, string timeframe, DateTime startTime, DateTime endTime, int limit = 200, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var interval = timeframe switch
+            {
+                "1m" => MexcKlineInterval.OneMinute,
+                "5m" => MexcKlineInterval.FiveMinutes,
+                "15m" => MexcKlineInterval.FifteenMinutes,
+                "30m" => MexcKlineInterval.ThirtyMinutes,
+                "1h" => MexcKlineInterval.OneHour,
+                "4h" => MexcKlineInterval.FourHours,
+                "1d" => MexcKlineInterval.OneDay,
+                _ => throw new ArgumentException($"Unsupported timeframe: {timeframe}")
+            };
+            var result = await _client.SpotApi.ExchangeData.GetKlinesAsync(symbol, interval, startTime, endTime, limit, ct: cancellationToken);
+            if (!result.Success)
+                throw new ExchangeException(ExchangeName, result.Error?.Message ?? "Failed to get klines", result.Error?.Code?.ToString());
+            return result.Data.Select(k => new UnifiedKline
+            {
+                OpenTime = k.OpenTime,
+                Open = k.OpenPrice,
+                High = k.HighPrice,
+                Low = k.LowPrice,
+                Close = k.ClosePrice,
+                Volume = k.Volume,
+                Symbol = symbol,
+                Exchange = ExchangeName
+            });
+        }
+        catch (ExchangeException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting klines from {Exchange}", ExchangeName);
+            throw new ExchangeException(ExchangeName, ex.Message, innerException: ex);
+        }
+    }
+
+    public void Dispose() => _client.Dispose();}

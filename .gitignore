@@ -10,3 +10,8 @@ obj/
 ## User-specific settings
 appsettings.Development.json
 appsettings.Local.json
+
+## Backtesting output and cache
+src/MyBot.Backtesting.Console/output/
+src/MyBot.Backtesting.Console/backtesting_cache/
+data_cache/

@@ -1,0 +1,14 @@
+namespace MyBot.Core.Models;
+
+/// <summary>Unified OHLCV kline/candlestick data model.</summary>
+public class UnifiedKline
+{
+    public DateTime OpenTime { get; set; }
+    public decimal Open { get; set; }
+    public decimal High { get; set; }
+    public decimal Low { get; set; }
+    public decimal Close { get; set; }
+    public decimal Volume { get; set; }
+    public string Symbol { get; set; } = string.Empty;
+    public string Exchange { get; set; } = string.Empty;
+}
