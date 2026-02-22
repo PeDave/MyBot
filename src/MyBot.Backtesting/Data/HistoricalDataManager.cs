@@ -10,6 +10,7 @@ namespace MyBot.Backtesting.Data;
 /// </summary>
 public class HistoricalDataManager : IHistoricalDataProvider
 {
+    private const int RateLimitDelayMs = 1000;
     private readonly IReadOnlyDictionary<string, IExchangeWrapper> _exchanges;
     private readonly ILogger<HistoricalDataManager> _logger;
     private readonly string _cacheDirectory;
@@ -164,6 +165,102 @@ public class HistoricalDataManager : IHistoricalDataProvider
                 _logger.LogWarning("Data gap detected between {Time1} and {Time2} ({Gap:F0} min expected {Expected:F0} min)",
                     candles[i - 1].Timestamp, candles[i].Timestamp, gap.TotalMinutes, expectedInterval.TotalMinutes);
         }
+    }
+
+    /// <summary>
+    /// Fetches long-range historical data by making multiple API calls in batches.
+    /// Useful for multi-year backtests (e.g., 2020-2026).
+    /// </summary>
+    public async Task<List<OHLCVCandle>> FetchLongRangeHistoricalDataAsync(
+        string exchangeName,
+        string symbol,
+        DateTime startDate,
+        DateTime endDate,
+        string timeframe = "1h",
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Fetching long-range historical data: {Symbol} {Timeframe} from {Start} to {End}",
+            symbol, timeframe, startDate, endDate);
+
+        var allCandles = new List<OHLCVCandle>();
+        var currentStart = startDate;
+
+        // Calculate batch size based on timeframe
+        // Most exchanges limit to ~1000 candles per request
+        var batchDays = timeframe switch
+        {
+            "1m" => 1,      // 1440 candles per day
+            "5m" => 3,      // ~864 candles per 3 days
+            "15m" => 10,    // ~960 candles per 10 days
+            "30m" => 20,    // ~960 candles per 20 days
+            "1h" => 40,     // ~960 candles per 40 days
+            "4h" => 160,    // ~960 candles per 160 days
+            "1d" => 1000,   // 1000 candles = 1000 days
+            _ => 40
+        };
+
+        int batchNumber = 1;
+
+        while (currentStart < endDate)
+        {
+            var batchEnd = currentStart.AddDays(batchDays);
+            if (batchEnd > endDate) batchEnd = endDate;
+
+            _logger.LogInformation("Fetching batch {Batch}: {Start:yyyy-MM-dd} to {End:yyyy-MM-dd}",
+                batchNumber++, currentStart, batchEnd);
+
+            try
+            {
+                var batch = await GetHistoricalDataAsync(
+                    exchangeName,
+                    symbol,
+                    currentStart,
+                    batchEnd,
+                    timeframe,
+                    cancellationToken);
+
+                if (batch != null && batch.Any())
+                {
+                    allCandles.AddRange(batch);
+                    _logger.LogInformation("  ✓ {Count} candles fetched", batch.Count);
+                }
+                else
+                {
+                    _logger.LogWarning("  ⚠ No data returned for this batch");
+                }
+
+                // Rate limiting - wait between requests to respect exchange limits
+                await Task.Delay(RateLimitDelayMs, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching batch {Batch}", batchNumber - 1);
+                // Continue with next batch instead of failing completely
+            }
+
+            currentStart = batchEnd;
+        }
+
+        // Remove duplicates and sort by timestamp
+        var uniqueCandles = allCandles
+            .GroupBy(c => c.Timestamp)
+            .Select(g => g.First())
+            .OrderBy(c => c.Timestamp)
+            .ToList();
+
+        _logger.LogInformation("Total unique candles fetched: {Count}", uniqueCandles.Count);
+
+        return uniqueCandles;
+    }
+
+    /// <summary>
+    /// Loads candle data from a CSV file.
+    /// Expected format: Timestamp,Open,High,Low,Close,Volume,Symbol,Exchange
+    /// Use this method to import historical data from a local CSV file when API access is unavailable.
+    /// </summary>
+    public static List<OHLCVCandle> LoadFromCsvFile(string filePath)
+    {
+        return LoadFromCsv(filePath);
     }
 
     private static void SaveToCsv(string filePath, List<OHLCVCandle> candles)
