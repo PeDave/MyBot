@@ -8,8 +8,9 @@ namespace MyBot.Backtesting.Strategies.Examples;
 /// Support/Resistance Breakout strategy: identifies dynamic support and resistance
 /// levels from recent price history and trades confirmed breakouts.
 /// Uses ATR-based stop-loss with a configurable risk/reward ratio for take-profit.
+/// A minimum holding period avoids premature re-entry after an exit.
 /// </summary>
-public class SupportResistanceStrategy : IBacktestStrategy
+public class SupportResistanceStrategy : BaseBacktestStrategy
 {
     private int _lookbackPeriod = 50;
     private decimal _breakoutThreshold = 0.005m;
@@ -18,22 +19,23 @@ public class SupportResistanceStrategy : IBacktestStrategy
     private int _atrPeriod = 14;
 
     /// <inheritdoc/>
-    public string Name => "Support/Resistance Breakout";
+    public override string Name => "Support/Resistance Breakout";
     /// <inheritdoc/>
-    public string Description => "Trades breakouts of dynamic support/resistance levels with ATR-based stop-loss.";
+    public override string Description => "Trades breakouts of dynamic support/resistance levels with ATR-based stop-loss.";
 
     /// <inheritdoc/>
-    public void Initialize(StrategyParameters parameters)
+    public override void Initialize(StrategyParameters parameters)
     {
         _lookbackPeriod = parameters.Get("LookbackPeriod", 50);
         _breakoutThreshold = parameters.Get("BreakoutThreshold", 0.005m);
         _volumeMultiplier = parameters.Get("VolumeMultiplier", 1.0m);
         _riskRewardRatio = parameters.Get("RiskRewardRatio", 2.0m);
         _atrPeriod = parameters.Get("AtrPeriod", 14);
+        MinimumHoldingHours = parameters.Get("MinimumHoldingHours", 4);
     }
 
     /// <inheritdoc/>
-    public TradeSignal OnCandle(OHLCVCandle candle, VirtualPortfolio portfolio, List<OHLCVCandle> historicalCandles)
+    protected override TradeSignal EvaluateSignal(OHLCVCandle candle, VirtualPortfolio portfolio, List<OHLCVCandle> historicalCandles)
     {
         if (historicalCandles.Count < _lookbackPeriod + _atrPeriod + 1)
             return TradeSignal.Hold;
@@ -61,10 +63,16 @@ public class SupportResistanceStrategy : IBacktestStrategy
             }
 
             if (candle.Low <= info.StopLoss)
+            {
+                RecordTrade(candle.Timestamp);
                 return TradeSignal.Sell;
+            }
 
             if (info.TakeProfit.HasValue && candle.High >= info.TakeProfit.Value)
+            {
+                RecordTrade(candle.Timestamp);
                 return TradeSignal.Sell;
+            }
 
             // Exit if price breaks back below support
             var lookback = historicalCandles
@@ -73,7 +81,10 @@ public class SupportResistanceStrategy : IBacktestStrategy
                 .ToList();
             var support = lookback.Min(c => c.Low);
             if (candle.Close < support * (1 - _breakoutThreshold))
+            {
+                RecordTrade(candle.Timestamp);
                 return TradeSignal.Sell;
+            }
 
             return TradeSignal.Hold;
         }
@@ -101,7 +112,10 @@ public class SupportResistanceStrategy : IBacktestStrategy
         var breakout = candle.Close > resistanceLevel * (1 + _breakoutThreshold);
 
         if (breakout && highVolume)
+        {
+            RecordTrade(candle.Timestamp);
             return TradeSignal.Buy;
+        }
 
         return TradeSignal.Hold;
     }

@@ -24,8 +24,8 @@ public class BacktestConfig
     public PositionSizingMode SizingMode { get; set; } = PositionSizingMode.PercentageOfPortfolio;
     /// <summary>Position size as a fraction of portfolio (e.g., 0.95 = 95%) or fixed amount. Default: 0.95.</summary>
     public decimal PositionSize { get; set; } = 0.95m;
-    /// <summary>Maximum fraction of account value allowed in a single position (e.g., 0.10 = 10%). Default: 10%.</summary>
-    public decimal MaxPositionSizePercent { get; set; } = 0.10m;
+    /// <summary>Maximum fraction of account value allowed in a single position (e.g., 0.05 = 5%). Default: 5%.</summary>
+    public decimal MaxPositionSizePercent { get; set; } = 0.05m;
     /// <summary>Maximum loss allowed per trade as a fraction of the trade entry price (e.g., 0.05 = 5%). Default: 5%.</summary>
     public decimal MaxLossPerTradePercent { get; set; } = 0.05m;
     /// <summary>Maximum loss allowed in a single day as a fraction of account value (e.g., 0.10 = 10%). Default: 10%.</summary>
