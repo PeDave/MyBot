@@ -11,8 +11,8 @@ namespace MyBot.Backtesting.Strategies.Examples;
 public class RsiMeanReversionStrategy : IBacktestStrategy
 {
     private int _rsiPeriod = 14;
-    private decimal _oversold = 30m;
-    private decimal _overbought = 70m;
+    private decimal _oversold = 40m;
+    private decimal _overbought = 60m;
 
     /// <inheritdoc/>
     public string Name => "RSI Mean Reversion";
@@ -23,8 +23,8 @@ public class RsiMeanReversionStrategy : IBacktestStrategy
     public void Initialize(StrategyParameters parameters)
     {
         _rsiPeriod = parameters.Get("RsiPeriod", 14);
-        _oversold = parameters.Get("Oversold", 30m);
-        _overbought = parameters.Get("Overbought", 70m);
+        _oversold = parameters.Get("Oversold", 40m);
+        _overbought = parameters.Get("Overbought", 60m);
     }
 
     /// <inheritdoc/>
