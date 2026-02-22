@@ -7,8 +7,9 @@ namespace MyBot.Backtesting.Strategies.Examples;
 /// <summary>
 /// Bollinger Bands Breakout strategy: buys when price breaks above the upper band
 /// with above-average volume, sells when price touches the lower band or stop-loss/take-profit hit.
+/// A minimum holding period prevents excessive whipsaw trading.
 /// </summary>
-public class BollingerBandsStrategy : IBacktestStrategy
+public class BollingerBandsStrategy : BaseBacktestStrategy
 {
     private int _bollingerPeriod = 20;
     private decimal _stdDevMultiplier = 2.0m;
@@ -17,22 +18,23 @@ public class BollingerBandsStrategy : IBacktestStrategy
     private int _volumeAvgPeriod = 20;
 
     /// <inheritdoc/>
-    public string Name => "Bollinger Bands Breakout";
+    public override string Name => "Bollinger Bands Breakout";
     /// <inheritdoc/>
-    public string Description => "Buy on breakout above upper Bollinger Band with volume confirmation; sell on lower band touch or SL/TP.";
+    public override string Description => "Buy on breakout above upper Bollinger Band with volume confirmation; sell on lower band touch or SL/TP.";
 
     /// <inheritdoc/>
-    public void Initialize(StrategyParameters parameters)
+    public override void Initialize(StrategyParameters parameters)
     {
         _bollingerPeriod = parameters.Get("BollingerPeriod", 20);
         _stdDevMultiplier = parameters.Get("StdDevMultiplier", 2.0m);
         _stopLossPercent = parameters.Get("StopLossPercent", 0.02m);
         _takeProfitPercent = parameters.Get("TakeProfitPercent", 0.04m);
         _volumeAvgPeriod = parameters.Get("VolumeAvgPeriod", 20);
+        MinimumHoldingHours = parameters.Get("MinimumHoldingHours", 3);
     }
 
     /// <inheritdoc/>
-    public TradeSignal OnCandle(OHLCVCandle candle, VirtualPortfolio portfolio, List<OHLCVCandle> historicalCandles)
+    protected override TradeSignal EvaluateSignal(OHLCVCandle candle, VirtualPortfolio portfolio, List<OHLCVCandle> historicalCandles)
     {
         if (historicalCandles.Count < _bollingerPeriod + 1)
             return TradeSignal.Hold;
@@ -59,14 +61,23 @@ public class BollingerBandsStrategy : IBacktestStrategy
             }
 
             if (candle.Low <= info.StopLoss)
+            {
+                RecordTrade(candle.Timestamp);
                 return TradeSignal.Sell;
+            }
 
             if (info.TakeProfit.HasValue && candle.High >= info.TakeProfit.Value)
+            {
+                RecordTrade(candle.Timestamp);
                 return TradeSignal.Sell;
+            }
 
             // Sell when price touches lower band (mean reversion exit)
             if (candle.Close <= lower[last]!.Value)
+            {
+                RecordTrade(candle.Timestamp);
                 return TradeSignal.Sell;
+            }
 
             return TradeSignal.Hold;
         }
@@ -81,7 +92,10 @@ public class BollingerBandsStrategy : IBacktestStrategy
         var brokeAbove = prevClose <= upper[prev]!.Value && candle.Close > upper[last]!.Value;
 
         if (brokeAbove && highVolume)
+        {
+            RecordTrade(candle.Timestamp);
             return TradeSignal.Buy;
+        }
 
         return TradeSignal.Hold;
     }

@@ -8,8 +8,9 @@ namespace MyBot.Backtesting.Strategies.Examples;
 /// Volatility Breakout (Turtle Trading) strategy: buys when price breaks above
 /// the upper Donchian Channel, exits when price breaks below the lower channel
 /// or stop-loss is hit. Position sizing uses ATR-based volatility.
+/// A longer minimum holding period reflects the longer-term nature of turtle trading.
 /// </summary>
-public class VolatilityBreakoutStrategy : IBacktestStrategy
+public class VolatilityBreakoutStrategy : BaseBacktestStrategy
 {
     private int _channelPeriod = 20;
     private int _atrPeriod = 14;
@@ -17,21 +18,22 @@ public class VolatilityBreakoutStrategy : IBacktestStrategy
     private decimal _positionSizePercent = 0.02m;
 
     /// <inheritdoc/>
-    public string Name => "Volatility Breakout";
+    public override string Name => "Volatility Breakout";
     /// <inheritdoc/>
-    public string Description => "Classic Turtle Trading: buys Donchian Channel breakouts with ATR-based stop-loss.";
+    public override string Description => "Classic Turtle Trading: buys Donchian Channel breakouts with ATR-based stop-loss.";
 
     /// <inheritdoc/>
-    public void Initialize(StrategyParameters parameters)
+    public override void Initialize(StrategyParameters parameters)
     {
         _channelPeriod = parameters.Get("ChannelPeriod", 20);
         _atrPeriod = parameters.Get("AtrPeriod", 14);
         _atrMultiplier = parameters.Get("AtrMultiplier", 2.0m);
         _positionSizePercent = parameters.Get("PositionSizePercent", 0.02m);
+        MinimumHoldingHours = parameters.Get("MinimumHoldingHours", 8);
     }
 
     /// <inheritdoc/>
-    public TradeSignal OnCandle(OHLCVCandle candle, VirtualPortfolio portfolio, List<OHLCVCandle> historicalCandles)
+    protected override TradeSignal EvaluateSignal(OHLCVCandle candle, VirtualPortfolio portfolio, List<OHLCVCandle> historicalCandles)
     {
         var minPeriod = Math.Max(_channelPeriod, _atrPeriod) + 1;
         if (historicalCandles.Count < minPeriod)
@@ -58,13 +60,19 @@ public class VolatilityBreakoutStrategy : IBacktestStrategy
                 info.StopLoss = info.EntryPrice - (atr[last]!.Value * _atrMultiplier);
 
             if (candle.Low <= info.StopLoss)
+            {
+                RecordTrade(candle.Timestamp);
                 return TradeSignal.Sell;
+            }
 
             // Exit when price breaks below the lower Donchian channel
             // (use previous period's lower band for the same reason as entry)
             if (!lower[last - 1].HasValue) return TradeSignal.Hold;
             if (candle.Close <= lower[last - 1]!.Value)
+            {
+                RecordTrade(candle.Timestamp);
                 return TradeSignal.Sell;
+            }
 
             return TradeSignal.Hold;
         }
@@ -77,7 +85,10 @@ public class VolatilityBreakoutStrategy : IBacktestStrategy
         if (!upper[prev].HasValue) return TradeSignal.Hold;
 
         if (candle.Close > upper[prev]!.Value)
+        {
+            RecordTrade(candle.Timestamp);
             return TradeSignal.Buy;
+        }
 
         return TradeSignal.Hold;
     }
