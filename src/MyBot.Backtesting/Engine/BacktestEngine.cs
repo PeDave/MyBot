@@ -41,7 +41,9 @@ public class BacktestEngine
             var candle = historicalData[i];
             var pastCandles = historicalData.Take(i + 1).ToList(); // only candles up to current
 
-            var signal = strategy.OnCandle(candle, portfolio, pastCandles);
+            // Enforce hard stop-loss before asking strategy for a signal
+            var signal = EnforceHardStopLoss(candle, portfolio, symbol, config)
+                         ?? strategy.OnCandle(candle, portfolio, pastCandles);
 
             ExecuteSignal(signal, candle, portfolio, simulator, symbol);
 
@@ -81,6 +83,25 @@ public class BacktestEngine
             EquityCurve = equityCurve,
             Config = config
         };
+    }
+
+    private static TradeSignal? EnforceHardStopLoss(
+        OHLCVCandle candle,
+        VirtualPortfolio portfolio,
+        string symbol,
+        BacktestConfig config)
+    {
+        if (portfolio.OpenTrade == null || config.MaxLossPerTradePercent <= 0)
+            return null;
+
+        var currentPrice = candle.Close;
+        var entryPrice = portfolio.OpenTrade.EntryPrice;
+        var unrealizedLossPct = (currentPrice - entryPrice) / entryPrice;
+
+        if (unrealizedLossPct < -config.MaxLossPerTradePercent)
+            return TradeSignal.Sell;
+
+        return null;
     }
 
     private static void ExecuteSignal(

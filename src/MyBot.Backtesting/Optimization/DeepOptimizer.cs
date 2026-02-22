@@ -125,19 +125,30 @@ public class DeepOptimizer
 
     /// <summary>
     /// Custom fitness function: (Return × WinRate × ProfitFactor) / MaxDrawdown.
-    /// Handles edge cases such as zero drawdown and infinite profit factor.
+    /// Handles edge cases such as zero drawdown, infinite profit factor, and overflow.
     /// </summary>
     private static decimal CalculateFitness(BacktestResult result)
     {
+        const decimal MaxReturnScore = 10_000m;
+        const decimal MaxProfitFactor = 100m;
+        const decimal MaxFitness = 1_000_000m;
+        const decimal ZeroDrawdownMultiplier = 1_000m;
+        const decimal MinDrawdown = 0.01m;
+
         var m = result.Metrics;
         if (m.TotalTrades == 0) return decimal.MinValue;
+        if (m.TotalReturnPercentage <= 0) return decimal.MinValue;
 
-        var returnScore = Math.Max(0m, m.TotalReturnPercentage);
+        if (m.MaxDrawdownPercentage == 0)
+            return Math.Min(m.TotalReturnPercentage * ZeroDrawdownMultiplier, MaxFitness);
+
+        var returnScore = Math.Min(m.TotalReturnPercentage, MaxReturnScore);
         var winRate = m.WinRate > 0 ? m.WinRate : 0.01m;
-        var profitFactor = m.ProfitFactor == decimal.MaxValue ? 10m : Math.Max(0m, m.ProfitFactor);
-        var maxDrawdown = m.MaxDrawdownPercentage > 0 ? m.MaxDrawdownPercentage : 1m;
+        var profitFactor = m.ProfitFactor == decimal.MaxValue ? 10m : Math.Min(Math.Max(0m, m.ProfitFactor), MaxProfitFactor);
+        var maxDrawdown = Math.Max(m.MaxDrawdownPercentage, MinDrawdown);
 
-        return (returnScore * winRate * profitFactor) / maxDrawdown;
+        var fitness = (returnScore * winRate * profitFactor) / maxDrawdown;
+        return Math.Min(fitness, MaxFitness);
     }
 
     private static List<StrategyParameters> GenerateCombinations(ParameterGrid grid)

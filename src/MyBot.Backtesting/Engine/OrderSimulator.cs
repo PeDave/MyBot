@@ -74,6 +74,13 @@ public class OrderSimulator
             _ => totalPortfolioValue * _config.PositionSize
         };
 
+        // Cap single position to MaxPositionSizePercent of total portfolio value
+        if (_config.MaxPositionSizePercent > 0)
+        {
+            var maxSinglePosition = totalPortfolioValue * _config.MaxPositionSizePercent;
+            tradeValue = Math.Min(tradeValue, maxSinglePosition);
+        }
+
         // Clamp to available cash (minus estimated fee)
         var maxAffordable = availableCash / (price * (1 + _config.TakerFeeRate + _config.SlippageRate));
         var desired = tradeValue / price;

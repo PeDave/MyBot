@@ -13,7 +13,7 @@ public class SupportResistanceStrategy : IBacktestStrategy
 {
     private int _lookbackPeriod = 50;
     private decimal _breakoutThreshold = 0.005m;
-    private decimal _volumeMultiplier = 1.5m;
+    private decimal _volumeMultiplier = 1.0m;
     private decimal _riskRewardRatio = 2.0m;
     private int _atrPeriod = 14;
 
@@ -27,7 +27,7 @@ public class SupportResistanceStrategy : IBacktestStrategy
     {
         _lookbackPeriod = parameters.Get("LookbackPeriod", 50);
         _breakoutThreshold = parameters.Get("BreakoutThreshold", 0.005m);
-        _volumeMultiplier = parameters.Get("VolumeMultiplier", 1.5m);
+        _volumeMultiplier = parameters.Get("VolumeMultiplier", 1.0m);
         _riskRewardRatio = parameters.Get("RiskRewardRatio", 2.0m);
         _atrPeriod = parameters.Get("AtrPeriod", 14);
     }
@@ -92,10 +92,10 @@ public class SupportResistanceStrategy : IBacktestStrategy
 
         if (resistanceLevel <= 0) return TradeSignal.Hold;
 
-        // Volume confirmation
+        // Volume confirmation: skipped when VolumeMultiplier <= 0
         var volPeriod = Math.Min(_lookbackPeriod, historicalCandles.Count);
         var avgVolume = historicalCandles.TakeLast(volPeriod).Average(c => c.Volume);
-        var highVolume = candle.Volume >= avgVolume * _volumeMultiplier;
+        var highVolume = _volumeMultiplier <= 0 || candle.Volume >= avgVolume * _volumeMultiplier;
 
         // Buy when price breaks convincingly above resistance with volume
         var breakout = candle.Close > resistanceLevel * (1 + _breakoutThreshold);
