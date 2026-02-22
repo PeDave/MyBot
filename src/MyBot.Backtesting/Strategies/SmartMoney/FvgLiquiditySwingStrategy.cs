@@ -1,3 +1,4 @@
+using System.Globalization;
 using MyBot.Backtesting.Engine;
 using MyBot.Backtesting.Indicators;
 using MyBot.Backtesting.Models;
@@ -82,14 +83,14 @@ public class FvgLiquiditySwingStrategy : IBacktestStrategy
 
                 if (fvg.IsBullish)
                 {
-                    Console.WriteLine(
-                        $"[FVG-LIQ] BUY at {candle.Close:F2} | FVG {fvg.GapBottom:F2}-{fvg.GapTop:F2}");
+                    Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                        $"[FVG-LIQ] BUY at {candle.Close:F2} | FVG {fvg.GapBottom:F2}-{fvg.GapTop:F2}"));
                     return TradeSignal.Buy;
                 }
                 else
                 {
-                    Console.WriteLine(
-                        $"[FVG-LIQ] SELL at {candle.Close:F2} | FVG {fvg.GapBottom:F2}-{fvg.GapTop:F2}");
+                    Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                        $"[FVG-LIQ] SELL at {candle.Close:F2} | FVG {fvg.GapBottom:F2}-{fvg.GapTop:F2}"));
                     return TradeSignal.Sell;
                 }
             }
@@ -101,7 +102,8 @@ public class FvgLiquiditySwingStrategy : IBacktestStrategy
             var holdTime = (candle.Timestamp - portfolio.OpenTrade.EntryTime).TotalHours;
             if (holdTime > 48)
             {
-                Console.WriteLine($"[FVG-LIQ] Time exit after {holdTime:F1}h");
+                Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                    $"[FVG-LIQ] Time exit after {holdTime:F1}h"));
                 return TradeSignal.Sell;
             }
         }
