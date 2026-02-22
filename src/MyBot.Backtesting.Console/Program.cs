@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using MyBot.Backtesting.Analysis;
 using MyBot.Backtesting.Data;
 using MyBot.Backtesting.Engine;
 using MyBot.Backtesting.Models;
@@ -240,6 +241,80 @@ Console.WriteLine($"Tested {optResult.TotalCombinationsTested} combinations in {
 
 reporter.ExportOptimizationResults(optResult, "./output/bollinger_optimization.csv");
 
+// ─── Multi-Period Analysis ─────────────────────────────────────────────────────
+Console.WriteLine("\n\n" + new string('═', 60));
+Console.WriteLine("  MULTI-PERIOD ANALYSIS");
+Console.WriteLine(new string('═', 60));
+
+// Generate a long synthetic dataset covering 2020-2026 for multi-period testing
+var multiPeriodStart = new DateTime(2020, 1, 1);
+var multiPeriodEnd = new DateTime(2026, 2, 22);
+Console.WriteLine($"\nGenerating synthetic data for {multiPeriodStart:yyyy-MM-dd} → {multiPeriodEnd:yyyy-MM-dd}...");
+var longCandles = GenerateSyntheticMultiPeriod(symbol, multiPeriodStart, multiPeriodEnd);
+Console.WriteLine($"  → {longCandles.Count} candles generated.");
+
+var advancedReporter = new AdvancedReportGenerator();
+var multiPeriodBacktester = new MultiPeriodBacktester(engine);
+var adaptiveStrategy = new AdaptiveMultiStrategy();
+
+Console.WriteLine("\nRunning multi-period backtest with Adaptive Multi-Strategy...");
+var multiPeriodResult = multiPeriodBacktester.RunMultiPeriod(adaptiveStrategy, longCandles, config);
+advancedReporter.PrintMultiPeriodResults(multiPeriodResult);
+
+Directory.CreateDirectory("./output");
+advancedReporter.ExportMultiPeriodToCsv(multiPeriodResult, "./output/multi_period_results.csv");
+
+// ─── Walk-Forward Optimization ────────────────────────────────────────────────
+Console.WriteLine("\n\n" + new string('═', 60));
+Console.WriteLine("  WALK-FORWARD OPTIMIZATION");
+Console.WriteLine(new string('═', 60));
+
+var wfOptimizer = new WalkForwardOptimizer(engine, loggerFactory.CreateLogger<WalkForwardOptimizer>());
+var wfSrStrategy = new SupportResistanceStrategy();
+var wfGrid = new ParameterGrid
+{
+    ["LookbackPeriod"] = new ParameterRange { Min = 30, Max = 60, Step = 10 },
+    ["BreakoutThreshold"] = new ParameterRange { Min = 0.003m, Max = 0.007m, Step = 0.002m },
+    ["RiskRewardRatio"] = new ParameterRange { Min = 1.5m, Max = 2.5m, Step = 0.5m }
+};
+
+Console.WriteLine("\nRunning walk-forward optimization on Support/Resistance...");
+var wfResult = wfOptimizer.Optimize(
+    wfSrStrategy, longCandles, wfGrid, config,
+    inSampleMonths: 6, outOfSampleMonths: 2, windowSteps: 3,
+    metric: OptimizationMetric.SharpeRatio);
+
+advancedReporter.PrintWalkForwardResults(wfResult);
+
+// ─── Deep Parameter Optimization ──────────────────────────────────────────────
+Console.WriteLine("\n\n" + new string('═', 60));
+Console.WriteLine("  DEEP PARAMETER OPTIMIZATION");
+Console.WriteLine(new string('═', 60));
+
+var deepOptimizer = new DeepOptimizer(engine, loggerFactory.CreateLogger<DeepOptimizer>());
+var deepGrid = new ParameterGrid
+{
+    ["LookbackPeriod"] = new ParameterRange { Min = 20, Max = 60, Step = 10 },            // 5 values
+    ["BreakoutThreshold"] = new ParameterRange { Min = 0.002m, Max = 0.010m, Step = 0.002m }, // 5 values
+    ["VolumeMultiplier"] = new ParameterRange { Min = 1.2m, Max = 2.0m, Step = 0.4m },   // 3 values
+    ["RiskRewardRatio"] = new ParameterRange { Min = 1.5m, Max = 3.0m, Step = 0.5m },    // 4 values
+    ["AtrPeriod"] = new ParameterRange { Min = 10, Max = 20, Step = 5 }                   // 3 values
+};
+// 5 × 5 × 3 × 4 × 3 = 900 combinations
+
+Console.WriteLine("\nRunning deep optimization on Support/Resistance (900 combinations)...");
+
+// Use last 2 years for deep optimization
+var deepStart = new DateTime(2024, 1, 1);
+var deepCandles = longCandles.Where(c => c.Timestamp >= deepStart).ToList();
+
+var deepResult = deepOptimizer.RunDeepOptimization(
+    () => new SupportResistanceStrategy(),
+    deepCandles, deepGrid, config);
+
+advancedReporter.PrintDeepOptimizationTop10(deepResult, "Support/Resistance");
+reporter.ExportOptimizationResults(deepResult, "./output/deep_optimization.csv");
+
 Console.WriteLine("\nDemo complete.");
 
 // Dispose wrappers
@@ -278,6 +353,72 @@ static List<OHLCVCandle> GenerateSyntheticData(string symbol, DateTime start, Da
 
         price = close;
         current = current.AddHours(intervalHours);
+    }
+    return candles;
+}
+
+// ─── Multi-Period Synthetic Data Generator ────────────────────────────────────
+// Simulates distinct market phases: bull (2020-2021), bear (2022), recovery (2023),
+// bull (2024), and ranging (2025-2026) using different drift and volatility parameters.
+// Uses daily candles to keep backtest runtime manageable.
+static List<OHLCVCandle> GenerateSyntheticMultiPeriod(string symbol, DateTime start, DateTime end)
+{
+    var candles = new List<OHLCVCandle>();
+    var rng = new Random(123);
+    var current = start;
+    var price = 7000m; // BTC price at start of 2020
+
+    while (current <= end)
+    {
+        // Assign market characteristics by calendar year
+        decimal drift, volatility;
+        if (current.Year == 2020)
+        {
+            drift = 0.004m; volatility = 0.03m; // strong bull
+        }
+        else if (current.Year == 2021)
+        {
+            drift = 0.003m; volatility = 0.035m; // continued bull, more volatile
+        }
+        else if (current.Year == 2022)
+        {
+            drift = -0.003m; volatility = 0.04m; // bear market
+        }
+        else if (current.Year == 2023)
+        {
+            drift = 0.002m; volatility = 0.025m; // recovery
+        }
+        else if (current.Year == 2024)
+        {
+            drift = 0.003m; volatility = 0.03m; // new bull
+        }
+        else
+        {
+            drift = 0.0002m; volatility = 0.02m; // ranging / sideways
+        }
+
+        var change = drift + (decimal)(rng.NextDouble() * (double)volatility * 2 - (double)volatility);
+        var open = price;
+        var close = Math.Max(open * (1m + change), 1m);
+        var high = Math.Max(open, close) * (1m + (decimal)(rng.NextDouble() * 0.008));
+        var low = Math.Min(open, close) * (1m - (decimal)(rng.NextDouble() * 0.008));
+        var baseVolume = current.Year <= 2021 ? 400m : current.Year == 2022 ? 600m : 300m;
+        var volume = baseVolume + (decimal)(rng.NextDouble() * 300);
+
+        candles.Add(new OHLCVCandle
+        {
+            Timestamp = current,
+            Open = Math.Round(open, 2),
+            High = Math.Round(high, 2),
+            Low = Math.Round(low, 2),
+            Close = Math.Round(close, 2),
+            Volume = Math.Round(volume, 4),
+            Symbol = symbol,
+            Exchange = "synthetic"
+        });
+
+        price = close;
+        current = current.AddDays(1); // daily candles to keep runtime manageable
     }
     return candles;
 }
