@@ -7,6 +7,8 @@ namespace MyBot.Backtesting.Reports;
 /// <summary>Generates advanced formatted reports for multi-period, walk-forward, and deep optimization results.</summary>
 public class AdvancedReportGenerator
 {
+    /// <summary>Maximum acceptable out-of-sample degradation percentage before flagging as possible overfitting.</summary>
+    private const decimal MaxAcceptableDegradation = 50m;
     /// <summary>Prints a formatted multi-period analysis report to the console.</summary>
     public void PrintMultiPeriodResults(MultiPeriodResult result)
     {
@@ -69,13 +71,13 @@ public class AdvancedReportGenerator
             Console.WriteLine($"  In-Sample:  Return: {isReturn:+0.00;-0.00}% | Sharpe: {w.InSampleResult.Metrics.SharpeRatio:F2}");
             Console.WriteLine($"  Out-Sample: Return: {oosReturn:+0.00;-0.00}% | Sharpe: {w.OutOfSampleResult.Metrics.SharpeRatio:F2}");
 
-            var degradationStatus = degradation <= 50m ? "✓" : "⚠ OVERFITTING";
+            var degradationStatus = degradation <= MaxAcceptableDegradation ? "✓" : "⚠ OVERFITTING";
             Console.WriteLine($"  Degradation: {degradation:F1}% {degradationStatus}");
         }
 
         Console.WriteLine();
         Console.WriteLine(new string('─', 60));
-        var avgStatus = result.DegradationPercent <= 50m ? "✓ (acceptable < 50%)" : "⚠ WARNING: possible overfitting";
+        var avgStatus = result.DegradationPercent <= MaxAcceptableDegradation ? "✓ (acceptable < 50%)" : "⚠ WARNING: possible overfitting";
         Console.WriteLine($"Average Degradation: {result.DegradationPercent:F1}% {avgStatus}");
         Console.WriteLine(new string('═', 60));
     }

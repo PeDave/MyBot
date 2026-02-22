@@ -51,6 +51,7 @@ public class DeepOptimizer
         var startTime = DateTime.UtcNow;
         var allResults = new ConcurrentBag<ParameterTestResult>();
         var completedCount = 0;
+        var failedCount = 0;
         var reportInterval = Math.Max(1, totalCombinations / 20); // report every 5%
 
         Parallel.ForEach(
@@ -66,8 +67,10 @@ public class DeepOptimizer
                 {
                     backtestResult = _engine.RunBacktest(strategy, historicalData, config.InitialBalance, config);
                 }
-                catch
+                catch (Exception ex)
                 {
+                    _logger.LogDebug(ex, "Backtest failed for parameter combination; skipping.");
+                    Interlocked.Increment(ref failedCount);
                     return;
                 }
 
@@ -95,6 +98,11 @@ public class DeepOptimizer
         var duration = DateTime.UtcNow - startTime;
         var sortedResults = allResults.OrderByDescending(r => r.MetricValue).ToList();
         var best = sortedResults.FirstOrDefault() ?? new ParameterTestResult();
+
+        if (sortedResults.Count == 0)
+            _logger.LogWarning("DeepOptimizer: all {Count} combinations failed.", totalCombinations);
+        else if (failedCount > 0)
+            _logger.LogInformation("DeepOptimizer: {Failed} of {Total} combinations failed; {Succeeded} succeeded.", failedCount, totalCombinations, sortedResults.Count);
 
         // Run a final single-threaded backtest to capture the full BacktestResult for the best params
         var bestStrategy = strategyFactory();
