@@ -7,6 +7,7 @@ using MyBot.Backtesting.Models;
 using MyBot.Backtesting.Reports;
 using MyBot.Backtesting.Strategies;
 using MyBot.Backtesting.Strategies.Examples;
+using MyBot.Backtesting.Strategies.SmartMoney;
 using MyBot.Core.Interfaces;
 using MyBot.Exchanges.Bitget;
 
@@ -232,6 +233,41 @@ advancedReporter.PrintMultiPeriodResults(multiPeriodResult);
 
 Directory.CreateDirectory("./output");
 advancedReporter.ExportMultiPeriodToCsv(multiPeriodResult, "./output/multi_period_results.csv");
+
+// ─── SMC Strategies ───────────────────────────────────────────────────────────
+Console.WriteLine("\n\n" + new string('═', 80));
+Console.WriteLine("  SMART MONEY CONCEPTS (SMC) STRATEGIES");
+Console.WriteLine(new string('═', 80));
+Console.WriteLine("\nTesting institutional trading strategies on real/synthetic data...\n");
+
+var smcStrategies = new List<IBacktestStrategy>
+{
+    new FvgLiquiditySwingStrategy(),
+    new OrderBlockChochStrategy()
+};
+
+var allSmcResults = new List<(string Name, BacktestResult Result)>();
+for (int si = 0; si < smcStrategies.Count; si++)
+{
+    var strategy = smcStrategies[si];
+    strategy.Initialize(new StrategyParameters());
+    Console.WriteLine($"Running Strategy {si + 1}/{smcStrategies.Count}: {strategy.Name}...\n");
+    var result = engine.RunBacktest(strategy, multiPeriodCandles, config.InitialBalance, config);
+    result.Symbol = symbol;
+    result.Timeframe = "1d";
+    allSmcResults.Add((strategy.Name, result));
+    reporter.PrintSummary(result);
+}
+
+reporter.PrintComparison(allSmcResults.Select(r => r.Result).ToList());
+
+foreach (var (name, result) in allSmcResults)
+{
+    var safeName = name.Replace(" ", "_").Replace("/", "-").Replace("+", "plus");
+    reporter.ExportTradesToCsv(result, $"./output/{safeName}_trades.csv");
+    reporter.ExportEquityCurveToCsv(result, $"./output/{safeName}_equity.csv");
+    reporter.ExportToJson(result, $"./output/{safeName}_result.json");
+}
 
 Console.WriteLine("\nDemo complete.");
 
