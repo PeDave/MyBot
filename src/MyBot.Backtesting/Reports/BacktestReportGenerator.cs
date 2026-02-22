@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using MyBot.Backtesting.Models;
+using MyBot.Backtesting.Optimization;
 
 namespace MyBot.Backtesting.Reports;
 
@@ -96,5 +97,20 @@ public class BacktestReportGenerator
             Console.WriteLine($"  {r.StrategyName,-28} {m.TotalReturnPercentage,7:F2}% {m.SharpeRatio,8:F2} {m.MaxDrawdownPercentage,7:F2}% {m.TotalTrades,8} {m.WinRate,7:P0} {(m.ProfitFactor == decimal.MaxValue ? "∞" : m.ProfitFactor.ToString("F2")),8}");
         }
         Console.WriteLine(new string('═', 90));
+    }
+
+    /// <summary>Exports optimization results to a CSV file, sorted by metric value descending.</summary>
+    public void ExportOptimizationResults(OptimizationResult result, string filePath)
+    {
+        var lines = new List<string> { "Parameters,MetricValue,TotalReturn,SharpeRatio,MaxDrawdown,TotalTrades,WinRate" };
+
+        foreach (var testResult in result.AllResults.OrderByDescending(r => r.MetricValue))
+        {
+            var paramStr = string.Join(";", testResult.Parameters.Select(p => $"{p.Key}={p.Value}"));
+            lines.Add($"\"{paramStr}\",{testResult.MetricValue:F4},{testResult.TotalReturn:F4},{testResult.SharpeRatio:F4},{testResult.MaxDrawdown:F4},{testResult.TotalTrades},{testResult.WinRate:F4}");
+        }
+
+        File.WriteAllLines(filePath, lines);
+        Console.WriteLine($"Optimization results exported to: {filePath}");
     }
 }
