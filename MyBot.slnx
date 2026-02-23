@@ -5,5 +5,6 @@
     <Project Path="src/MyBot.Exchanges/MyBot.Exchanges.csproj" />
     <Project Path="src/MyBot.Backtesting/MyBot.Backtesting.csproj" />
     <Project Path="src/MyBot.Backtesting.Console/MyBot.Backtesting.Console.csproj" />
+    <Project Path="src/MyBot.WebDashboard/MyBot.WebDashboard.csproj" />
   </Folder>
 </Solution>
