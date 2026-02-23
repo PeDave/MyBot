@@ -198,6 +198,29 @@ var ticker = await bybit.GetTickerAsync("BTCUSDT");
 Console.WriteLine($"BTC Price: {ticker.LastPrice}");
 ```
 
+## 🌐 Portfolio Dashboard
+
+Web interface for viewing balances across all exchanges.
+
+### Getting Started
+
+```bash
+cd src/MyBot.WebDashboard
+dotnet run
+```
+
+Open your browser at: **http://localhost:5000**
+
+### Features
+
+- ✅ All exchange balances (Bitget, BingX, MEXC, Bybit)
+- ✅ Total portfolio value in USD
+- ✅ Per-coin breakdown
+- ✅ Visual allocation chart (pie chart)
+- ✅ Auto-refresh every 30 seconds
+
+---
+
 ## Building
 
 ```bash

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyBot Portfolio Dashboard</title>
+    <link rel="stylesheet" href="/css/dashboard.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>💰 MyBot Portfolio Dashboard</h1>
+            <button onclick="refreshData()" class="refresh-btn">🔄 Refresh</button>
+        </header>
+
+        <div class="total-balance">
+            <h2>Total Balance</h2>
+            <div class="balance-amount" id="totalBalance">Loading...</div>
+            <div class="last-updated" id="lastUpdated"></div>
+        </div>
+
+        <div class="content-grid">
+            <div class="card">
+                <h3>📊 Exchange Balances</h3>
+                <table id="exchangesTable">
+                    <thead>
+                        <tr>
+                            <th>Exchange</th>
+                            <th>Total (USD)</th>
+                            <th>Share</th>
+                        </tr>
+                    </thead>
+                    <tbody id="exchangesBody"></tbody>
+                </table>
+            </div>
+
+            <div class="card">
+                <h3>📈 Allocation</h3>
+                <canvas id="allocationChart"></canvas>
+            </div>
+
+            <div class="card">
+                <h3>🪙 Coin Breakdown</h3>
+                <div id="coinList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/dashboard.js"></script>
+</body>
+</html>
