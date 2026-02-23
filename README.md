@@ -9,25 +9,33 @@ MyBot/
 ├── MyBot.slnx                    # Solution file
 ├── src/
 │   ├── MyBot.Core/               # Core interfaces, models, and exceptions
-│   │   ├── Interfaces/
-│   │   │   └── IExchangeWrapper.cs   # Unified exchange interface
-│   │   ├── Models/
-│   │   │   ├── Enums.cs              # OrderSide, OrderType, OrderStatus, TimeInForce
-│   │   │   ├── UnifiedBalance.cs     # Account balance model
-│   │   │   ├── UnifiedOrder.cs       # Order model
-│   │   │   ├── UnifiedTicker.cs      # Ticker/price model
-│   │   │   ├── UnifiedOrderBook.cs   # Order book model
-│   │   │   └── UnifiedTrade.cs       # Trade model
-│   │   └── Exceptions/
-│   │       └── ExchangeException.cs  # Exchange-specific exceptions
 │   ├── MyBot.Exchanges/          # Exchange wrapper implementations
-│   │   ├── Bitget/BitgetWrapper.cs   # Bitget exchange (JK.Bitget.Net)
-│   │   ├── BingX/BingXWrapper.cs     # BingX exchange (JK.BingX.Net)
-│   │   ├── Mexc/MexcWrapper.cs       # MEXC exchange (JK.Mexc.Net)
-│   │   └── Bybit/BybitWrapper.cs     # Bybit exchange (Bybit.Net)
-│   └── MyBot.Console/            # Console demo application
-│       ├── Program.cs
-│       └── appsettings.json
+│   │   ├── Bitget/BitgetWrapper.cs
+│   │   ├── BingX/BingXWrapper.cs
+│   │   ├── Mexc/MexcWrapper.cs
+│   │   └── Bybit/BybitWrapper.cs
+│   ├── MyBot.Console/            # Exchange demo console
+│   ├── MyBot.Backtesting/        # Backtesting framework
+│   │   ├── Data/
+│   │   │   ├── HistoricalDataManager.cs
+│   │   │   └── MultiTimeframeAggregator.cs   # Daily/weekly OHLCV aggregation
+│   │   ├── Engine/
+│   │   │   ├── BacktestEngine.cs
+│   │   │   ├── VirtualPortfolio.cs
+│   │   │   └── BacktestConfig.cs
+│   │   ├── Strategies/
+│   │   │   ├── IBacktestStrategy.cs
+│   │   │   ├── BuyAndHoldStrategy.cs         # Baseline buy-and-hold
+│   │   │   ├── BtcMacroMaStrategy.cs         # Bull Band + TP + Scale-in
+│   │   │   └── Examples/                     # Example strategies
+│   │   ├── ML/
+│   │   │   └── StrategySelector.cs           # ML-based strategy selection
+│   │   ├── Analysis/
+│   │   │   └── MarketRegimeDetector.cs
+│   │   ├── Indicators/
+│   │   └── Reports/
+│   └── MyBot.Backtesting.Console/ # Backtesting CLI app
+│       └── Program.cs
 └── README.md
 ```
 
@@ -40,7 +48,90 @@ MyBot/
 | MEXC     | JK.Mexc.Net      | 4.*     |
 | Bybit    | Bybit.Net        | 6.*     |
 
-## Unified API
+---
+
+## Backtesting Framework
+
+### Quick Start
+
+```bash
+# Run with default settings (BTCUSDT, 2020–present, synthetic data)
+dotnet run --project src/MyBot.Backtesting.Console
+
+# Run with specific symbols and date range
+dotnet run --project src/MyBot.Backtesting.Console -- \
+  --symbols BTCUSDT,ETHUSDT \
+  --start 2020-01-01 \
+  --end 2024-12-31
+```
+
+### Strategies
+
+#### Buy & Hold (`BuyAndHoldStrategy`)
+Simple baseline strategy: buys at the first candle and holds forever. Useful as a performance benchmark for active strategies.
+
+#### BTC Macro MA Trend (`BtcMacroMaStrategy`)
+Based on the **Bull Market Support Band** concept (PineScript origin). Uses weekly SMA20 and EMA21 to define bull/bear zones, with multi-timeframe aggregation.
+
+| Parameter      | Default | Description |
+|----------------|---------|-------------|
+| `Use200DFilter`| `false` | Only enter if price > 200D SMA |
+| `UseTrailing`  | `true`  | Enable trailing stop |
+| `TrailPct`     | `5.0`   | Trailing stop distance (%) |
+| `TpStepPct`    | `10.0`  | Take-profit step size (%) |
+| `TpClosePct`   | `20.0`  | Position % to close at each TP |
+| `MaxSteps`     | `5`     | Maximum TP steps |
+| `UseScaleIn`   | `true`  | Allow scale-in after pullback |
+| `PullbackPct`  | `6.0`   | Minimum pullback (%) to trigger scale-in |
+| `AddSizePct`   | `20.0`  | Scale-in position size (% of initial capital) |
+
+**Entry logic**: Price crosses from below the bull band into or above it (red→green color flip).  
+**Exit logic**: Price falls below the bull band (green→red) or trailing stop triggers.  
+**Scale-in**: After at least one TP level is reached, if price pulls back ≥ `PullbackPct` from the peak and then re-breaks the band, a new long is opened.
+
+### Multi-Timeframe Aggregation (`MultiTimeframeAggregator`)
+
+Aggregates lower-timeframe candles into daily and weekly candles for indicator calculation:
+
+```csharp
+var dailyCandles  = MultiTimeframeAggregator.ToDailyCandles(hourlyCandles);
+var weeklyCandles = MultiTimeframeAggregator.ToWeeklyCandles(hourlyCandles);
+```
+
+OHLCV aggregation: Open = first, High = max, Low = min, Close = last, Volume = sum.  
+Weekly grouping is ISO week / Monday-based.
+
+### ML-Based Strategy Selection (`StrategySelector`)
+
+Evaluates multiple strategies on the same data and selects the best one based on the current market regime:
+
+```csharp
+// Evaluate all strategies
+var results = StrategySelector.EvaluateStrategies(strategies, candles, 10_000m);
+
+// Classify current market regime
+var regime = StrategySelector.ClassifyRegime(candles.TakeLast(90).ToList());
+
+// Select best strategy (Sharpe ratio + regime bonus)
+var bestStrategyName = StrategySelector.SelectBestStrategy(results, regime);
+```
+
+**Market regimes**: `Bull`, `Bear`, `Sideways`  
+**Selection criterion**: Sharpe ratio with regime-specific bonuses (trend-following strategies score higher in bull/bear markets).
+
+### Performance Metrics
+
+Each backtest result includes:
+- Total return & annualized return
+- Max drawdown (absolute + %)
+- Sharpe ratio & Sortino ratio
+- Win rate, profit factor
+- Average win/loss, largest win/loss
+- Average holding period
+
+---
+
+## Exchange API
 
 All exchange wrappers implement `IExchangeWrapper`:
 
@@ -65,37 +156,7 @@ public interface IExchangeWrapper
 }
 ```
 
-## Quick Start
-
-### 1. Configure API Keys
-
-Edit `src/MyBot.Console/appsettings.json`:
-
-```json
-{
-  "ExchangeSettings": {
-    "Bitget": {
-      "ApiKey": "your-api-key",
-      "ApiSecret": "your-api-secret",
-      "Passphrase": "your-passphrase"
-    },
-    "BingX": {
-      "ApiKey": "your-api-key",
-      "ApiSecret": "your-api-secret"
-    },
-    "Mexc": {
-      "ApiKey": "your-api-key",
-      "ApiSecret": "your-api-secret"
-    },
-    "Bybit": {
-      "ApiKey": "your-api-key",
-      "ApiSecret": "your-api-secret"
-    }
-  }
-}
-```
-
-### 2. Use in Your Code
+### Quick Start
 
 ```csharp
 using Microsoft.Extensions.Logging;
@@ -105,37 +166,8 @@ var loggerFactory = LoggerFactory.Create(b => b.AddConsole());
 using var bybit = new BybitWrapper("apiKey", "apiSecret",
     loggerFactory.CreateLogger<BybitWrapper>());
 
-// Get ticker
 var ticker = await bybit.GetTickerAsync("BTCUSDT");
 Console.WriteLine($"BTC Price: {ticker.LastPrice}");
-
-// Get account balances
-var balances = await bybit.GetBalancesAsync();
-foreach (var b in balances.Where(b => b.Total > 0))
-    Console.WriteLine($"{b.Asset}: {b.Available} available");
-
-// Place a limit buy order
-var order = await bybit.PlaceOrderAsync(
-    symbol: "BTCUSDT",
-    side: OrderSide.Buy,
-    type: OrderType.Limit,
-    quantity: 0.001m,
-    price: 50000m);
-Console.WriteLine($"Order placed: {order.OrderId}");
-
-// Cancel the order
-var cancelled = await bybit.CancelOrderAsync("BTCUSDT", order.OrderId);
-
-// Get order book
-var book = await bybit.GetOrderBookAsync("BTCUSDT", depth: 10);
-Console.WriteLine($"Best bid: {book.Bids[0].Price}, Best ask: {book.Asks[0].Price}");
-```
-
-### 3. Run the Demo
-
-```bash
-cd src/MyBot.Console
-dotnet run
 ```
 
 ## Building
@@ -148,7 +180,7 @@ dotnet build
 ## Requirements
 
 - .NET 8.0 SDK or later
-- API keys from the exchange(s) you want to use
+- API keys from the exchange(s) you want to use (optional – falls back to synthetic data)
 
 ## Error Handling
 
@@ -158,17 +190,3 @@ All wrappers throw typed exceptions from `MyBot.Core.Exceptions`:
 - `ExchangeAuthenticationException` — API key/authentication failures
 - `ExchangeRateLimitException` — rate limit exceeded (includes `RetryAfter`)
 
-```csharp
-try
-{
-    var ticker = await wrapper.GetTickerAsync("BTCUSDT");
-}
-catch (ExchangeRateLimitException ex)
-{
-    Console.WriteLine($"Rate limited. Retry after: {ex.RetryAfter}");
-}
-catch (ExchangeException ex)
-{
-    Console.WriteLine($"Exchange error [{ex.ExchangeName}]: {ex.Message} (code: {ex.ErrorCode})");
-}
-```
