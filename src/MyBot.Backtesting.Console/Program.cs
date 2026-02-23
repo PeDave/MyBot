@@ -2,7 +2,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MyBot.Backtesting.Data;
 using MyBot.Backtesting.Engine;
-using MyBot.Backtesting.ML;
 using MyBot.Backtesting.Models;
 using MyBot.Backtesting.Reports;
 using MyBot.Backtesting.Strategies;
@@ -32,7 +31,7 @@ using var loggerFactory = LoggerFactory.Create(b =>
 });
 
 Console.WriteLine("═══════════════════════════════════════════════════════════════");
-Console.WriteLine("  MyBot Backtesting Console – Multi-Strategy + ML Selection");
+Console.WriteLine("  MyBot Backtesting Console – BtcMacroMaTrendWithTpScaleIn");
 Console.WriteLine("═══════════════════════════════════════════════════════════════");
 Console.WriteLine($"  Symbols : {string.Join(", ", symbols)}");
 Console.WriteLine($"  Period  : {multiPeriodStart:yyyy-MM-dd} → {multiPeriodEnd:yyyy-MM-dd}");
@@ -117,62 +116,37 @@ foreach (var symbol in symbols)
         continue;
     }
 
-    // ── Define strategies ──────────────────────────────────────────────────
-    var strategies = new List<IBacktestStrategy>
+    // ─── STRATÉGIA INICIALIZÁLÁS ──────────────────────────────────────────────────
+    var strategy = new BtcMacroMaTrendWithTpScaleInStrategy();
+    var parameters = new StrategyParameters
     {
-        new BuyAndHoldStrategy(),
-        new BtcMacroMaStrategy
-        {
-            Use200DFilter = false,
-            UseTrailing   = true,
-            TrailPct      = 5.0,
-            TpStepPct     = 10.0,
-            TpClosePct    = 20.0,
-            MaxSteps      = 5,
-            UseScaleIn    = true,
-            PullbackPct   = 6.0,
-            AddSizePct    = 20.0
-        }
+        ["Use200DFilter"] = false,
+        ["TpStepPct"]     = 10.0,
+        ["TpClosePct"]    = 20.0,
+        ["MaxSteps"]      = 5,
+        ["UseScaleIn"]    = true,
+        ["PullbackPct"]   = 6.0,
+        ["AddSizePct"]    = 20.0,
+        ["UseTrailing"]   = true,
+        ["TrailPct"]      = 5.0
     };
+    strategy.Initialize(parameters);
 
-    // ── Run backtests via StrategySelector ────────────────────────────────
-    Console.WriteLine("  Running backtests for all strategies...\n");
-    var results = StrategySelector.EvaluateStrategies(strategies, candles, config.InitialBalance);
+    Console.WriteLine("\nRunning BtcMacroMaTrendWithTpScaleInStrategy...\n");
 
-    // ── Print results per strategy ─────────────────────────────────────────
-    foreach (var (name, result) in results)
-    {
-        result.Symbol    = symbol;
-        result.Timeframe = "1d";
-        reporter.PrintSummary(result);
+    // ─── BACKTEST FUTTATÁS ────────────────────────────────────────────────────────
+    var result = engine.RunBacktest(strategy, candles, config.InitialBalance, config);
 
-        var safeName = result.StrategyName.Replace(" ", "_").Replace("/", "-").Replace("(", "").Replace(")", "").Replace("&", "and");
-        var safeSymbol = symbol.Replace("/", "-");
-        reporter.ExportTradesToCsv(result,      $"./output/{safeSymbol}_{safeName}_trades.csv");
-        reporter.ExportEquityCurveToCsv(result, $"./output/{safeSymbol}_{safeName}_equity.csv");
-        reporter.ExportToJson(result,            $"./output/{safeSymbol}_{safeName}_result.json");
-    }
+    result.Symbol    = symbol;
+    result.Timeframe = "1d";
 
-    // ── ML: classify market regime and select best strategy ───────────────
-    var regime      = StrategySelector.ClassifyRegime(candles.TakeLast(90).ToList());
-    var bestName    = StrategySelector.SelectBestStrategy(results, regime);
+    // ─── EREDMÉNYEK KIÍRÁSA ───────────────────────────────────────────────────────
+    reporter.PrintSummary(result);
 
-    Console.WriteLine($"\n  ┌─────────────────────────────────────────────────────┐");
-    Console.WriteLine($"  │  ML Strategy Selection for {symbol,-26}│");
-    Console.WriteLine($"  │  Market Regime : {regime,-34}│");
-    Console.WriteLine($"  │  Best Strategy : {bestName,-34}│");
-    Console.WriteLine($"  └─────────────────────────────────────────────────────┘\n");
-
-    // Quick comparison table
-    Console.WriteLine($"  {"Strategy",-32} {"PnL %",8} {"Sharpe",8} {"Win%",8} {"Trades",7}");
-    Console.WriteLine($"  {new string('-', 64)}");
-    foreach (var (name, result) in results.OrderByDescending(r => r.Value.Metrics.SharpeRatio))
-    {
-        var m    = result.Metrics;
-        var mark = name == bestName ? " ★" : "  ";
-        Console.WriteLine($"  {name,-32}{mark} {m.TotalReturnPercentage,6:F1}%  {m.SharpeRatio,6:F2}  {m.WinRate,6:P0}  {m.TotalTrades,5}");
-    }
-    Console.WriteLine();
+    // Export
+    reporter.ExportTradesToCsv(result,      $"./output/BTC_Macro_MA_trades.csv");
+    reporter.ExportEquityCurveToCsv(result, $"./output/BTC_Macro_MA_equity.csv");
+    reporter.ExportToJson(result,            $"./output/BTC_Macro_MA_result.json");
 }
 
 // Dispose exchange wrappers
