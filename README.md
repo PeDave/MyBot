@@ -27,6 +27,7 @@ MyBot/
 │   │   │   ├── IBacktestStrategy.cs
 │   │   │   ├── BuyAndHoldStrategy.cs         # Baseline buy-and-hold
 │   │   │   ├── BtcMacroMaStrategy.cs         # Bull Band + TP + Scale-in
+│   │   │   ├── BtcMacroMaTrendWithTpScaleInStrategy.cs  # Pine Script port (active)
 │   │   │   └── Examples/                     # Example strategies
 │   │   ├── ML/
 │   │   │   └── StrategySelector.cs           # ML-based strategy selection
@@ -88,6 +89,33 @@ Based on the **Bull Market Support Band** concept (PineScript origin). Uses week
 **Entry logic**: Price crosses from below the bull band into or above it (red→green color flip).  
 **Exit logic**: Price falls below the bull band (green→red) or trailing stop triggers.  
 **Scale-in**: After at least one TP level is reached, if price pulls back ≥ `PullbackPct` from the peak and then re-breaks the band, a new long is opened.
+
+## BTC Macro MA Trend Strategy
+
+**Forrás:** Pine Script portolás
+
+**Leírás:**
+- Bull Market Support Band (SMA20W + EMA21W) alapú long stratégia
+- Belépés: bear zónából bull zónába váltás (piros → zöld)
+- Kilépés: bull zónából bear zónába váltás (zöld → piros) VAGY trailing stop
+- Lépcsős profit-taking (TP): 10%-onként 20% pozíció zárás
+- Scale-in pullback után: 6%+ esés után re-break esetén újra belépés
+
+**Paraméterek:**
+- `Use200DFilter`: 200D SMA filter használata (default: false)
+- `TpStepPct`: TP lépés % (default: 10)
+- `MaxSteps`: Max TP lépcsők (default: 5)
+- `PullbackPct`: Min pullback % (default: 6)
+- `UseTrailing`: Trailing stop használata (default: true)
+- `TrailPct`: Trailing stop % (default: 5)
+
+**Futtatás:**
+```bash
+cd src/MyBot.Backtesting.Console
+dotnet run
+```
+
+---
 
 ### Multi-Timeframe Aggregation (`MultiTimeframeAggregator`)
 
