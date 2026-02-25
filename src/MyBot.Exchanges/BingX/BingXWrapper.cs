@@ -56,6 +56,29 @@ public class BingXWrapper : IExchangeWrapper, IDisposable
         }
     }
 
+    public async Task<AccountBalances> GetAllAccountBalancesAsync(CancellationToken cancellationToken = default)
+    {
+        var result = new AccountBalances();
+        try
+        {
+            var spotBalances = await GetBalancesAsync(cancellationToken);
+            result.Spot = spotBalances
+                .Where(b => b.Total > 0)
+                .Select(b => new AssetBalance
+                {
+                    Asset = b.Asset,
+                    Free = b.Available,
+                    Locked = b.Locked,
+                    UsdValue = 0
+                }).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting all account balances from {Exchange}", ExchangeName);
+        }
+        return result;
+    }
+
     public async Task<UnifiedOrder> PlaceOrderAsync(string symbol, OrderSide side, OrderType type, decimal quantity,
         decimal? price = null, TimeInForce timeInForce = TimeInForce.GoodTillCanceled, CancellationToken cancellationToken = default)
     {
