@@ -1,3 +1,7 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using BingX.Net.Clients;
 using CryptoExchange.Net.Authentication;
 using Microsoft.Extensions.Logging;
@@ -18,12 +22,19 @@ public class BingXWrapper : IExchangeWrapper, IDisposable
 {
     private readonly BingXRestClient _client;
     private readonly ILogger<BingXWrapper> _logger;
+    private readonly string _apiKey;
+    private readonly string _apiSecret;
+    private readonly HttpClient _httpClient;
+    private const string _baseUrl = "https://open-api.bingx.com";
 
     public string ExchangeName => "BingX";
 
     public BingXWrapper(string apiKey, string apiSecret, ILogger<BingXWrapper> logger)
     {
+        _apiKey = apiKey;
+        _apiSecret = apiSecret;
         _logger = logger;
+        _httpClient = new HttpClient();
         _client = new BingXRestClient(options =>
         {
             options.ApiCredentials = new ApiCredentials(apiKey, apiSecret);
@@ -71,12 +82,107 @@ public class BingXWrapper : IExchangeWrapper, IDisposable
                     Locked = b.Locked,
                     UsdValue = 0
                 }).ToList();
+            _logger.LogInformation("BingX Spot: {Count} assets", result.Spot.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting all account balances from {Exchange}", ExchangeName);
+            _logger.LogError(ex, "Error getting spot balances from {Exchange}", ExchangeName);
+        }
+        try
+        {
+            result.Wealth = await GetWealthBalancesAsync(cancellationToken);
+            _logger.LogInformation("BingX Wealth: {Count} assets", result.Wealth.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting wealth balances from {Exchange}", ExchangeName);
         }
         return result;
+    }
+
+    private async Task<List<AssetBalance>> GetWealthBalancesAsync(CancellationToken cancellationToken = default)
+    {
+        var balances = new List<AssetBalance>();
+        try
+        {
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+            var queryString = $"timestamp={timestamp}";
+            var signature = GenerateSignature(queryString);
+            var url = $"{_baseUrl}/openApi/savings/v1/accounts?{queryString}&signature={signature}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("X-BX-APIKEY", _apiKey);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning("BingX wealth balances failed: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                return balances;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            var data = JsonSerializer.Deserialize<BingXWealthResponse>(json);
+
+            if (data?.Code == 0 && data.Data != null)
+            {
+                foreach (var item in data.Data)
+                {
+                    if (!decimal.TryParse(item.TotalAmount, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var total) || total <= 0)
+                        continue;
+                    _ = decimal.TryParse(item.TodayProfit, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var profit);
+                    balances.Add(new AssetBalance
+                    {
+                        Asset = item.Asset ?? "USDT",
+                        Free = total,
+                        Locked = 0,
+                        UsdValue = total
+                    });
+                }
+            }
+            else
+            {
+                _logger.LogInformation("BingX wealth response code: {Code}, msg: {Msg}", data?.Code, data?.Msg);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch wealth balances from {Exchange}", ExchangeName);
+        }
+        return balances;
+    }
+
+    private string GenerateSignature(string queryString)
+    {
+        var keyBytes = Encoding.UTF8.GetBytes(_apiSecret);
+        var messageBytes = Encoding.UTF8.GetBytes(queryString);
+        using var hmac = new HMACSHA256(keyBytes);
+        var hashBytes = hmac.ComputeHash(messageBytes);
+        return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
+    }
+
+    private class BingXWealthResponse
+    {
+        [JsonPropertyName("code")]
+        public int Code { get; set; }
+
+        [JsonPropertyName("msg")]
+        public string? Msg { get; set; }
+
+        [JsonPropertyName("data")]
+        public List<BingXWealthItem>? Data { get; set; }
+    }
+
+    private class BingXWealthItem
+    {
+        [JsonPropertyName("asset")]
+        public string? Asset { get; set; }
+
+        [JsonPropertyName("totalAmount")]
+        public string? TotalAmount { get; set; }
+
+        [JsonPropertyName("todayProfit")]
+        public string? TodayProfit { get; set; }
     }
 
     public async Task<UnifiedOrder> PlaceOrderAsync(string symbol, OrderSide side, OrderType type, decimal quantity,
@@ -384,4 +490,9 @@ public class BingXWrapper : IExchangeWrapper, IDisposable
         }
     }
 
-    public void Dispose() => _client.Dispose();}
+    public void Dispose()
+    {
+        _client.Dispose();
+        _httpClient.Dispose();
+    }
+}

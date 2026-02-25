@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using MyBot.Core.Exceptions;
 using MyBot.Core.Interfaces;
 using MyBot.Core.Models;
+using MyBot.Core.Utilities;
 using BitgetOrderEntry = Bitget.Net.Objects.Models.V2.BitgetOrder;
 using BitgetOrderSide = Bitget.Net.Enums.V2.OrderSide;
 using BitgetOrderType = Bitget.Net.Enums.V2.OrderType;
@@ -182,8 +183,9 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
         try
         {
             var endpoint = $"/api/v2/account/bot-assets?accountType={accountType}";
-            var request = CreateAuthenticatedRequest(HttpMethod.Get, endpoint);
-            var response = await _httpClient.SendAsync(request, cancellationToken);
+            var response = await RateLimitHelper.ExecuteHttpWithRetryAsync(
+                () => _httpClient.SendAsync(CreateAuthenticatedRequest(HttpMethod.Get, endpoint), cancellationToken),
+                cancellationToken: cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
