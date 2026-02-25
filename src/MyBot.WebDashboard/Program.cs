@@ -74,6 +74,31 @@ app.MapGet("/api/portfolio", async (PortfolioService service) =>
     return Results.Ok(await service.GetPortfolioAsync());
 });
 
+// 1️⃣ Portfolio Overview
+app.MapGet("/api/portfolio/overview", async (PortfolioService service) =>
+{
+    return Results.Ok(await service.GetOverviewAsync());
+});
+
+// 2️⃣ Exchange Summary
+app.MapGet("/api/portfolio/exchanges", async (PortfolioService service) =>
+{
+    return Results.Ok(await service.GetExchangeSummariesAsync());
+});
+
+// 3️⃣ Exchange Details
+app.MapGet("/api/portfolio/exchange/{name}", async (string name, PortfolioService service) =>
+{
+    try
+    {
+        return Results.Ok(await service.GetExchangeDetailsAsync(name));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.NotFound(new { error = ex.Message });
+    }
+});
+
 app.MapGet("/", () => Results.Redirect("/index.html"));
 
 app.Run("http://localhost:5000");

@@ -13,6 +13,9 @@ public interface IExchangeWrapper
     /// <summary>Gets the account balances for the exchange.</summary>
     Task<IEnumerable<UnifiedBalance>> GetBalancesAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Gets balances for all account types (spot, futures, earn, bot, wealth, unified).</summary>
+    Task<AccountBalances> GetAllAccountBalancesAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Places an order on the exchange.</summary>
     Task<UnifiedOrder> PlaceOrderAsync(string symbol, OrderSide side, OrderType type, decimal quantity, decimal? price = null, TimeInForce timeInForce = TimeInForce.GoodTillCanceled, CancellationToken cancellationToken = default);
 

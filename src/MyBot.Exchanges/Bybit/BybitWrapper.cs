@@ -59,6 +59,50 @@ public class BybitWrapper : IExchangeWrapper, IDisposable
         }
     }
 
+    public async Task<AccountBalances> GetAllAccountBalancesAsync(CancellationToken cancellationToken = default)
+    {
+        var result = new AccountBalances();
+        try
+        {
+            var spotBalances = await GetBalancesAsync(cancellationToken);
+            result.Spot = spotBalances
+                .Where(b => b.Total > 0)
+                .Select(b => new AssetBalance
+                {
+                    Asset = b.Asset,
+                    Free = b.Available,
+                    Locked = b.Locked,
+                    UsdValue = 0
+                }).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting spot balances from {Exchange}", ExchangeName);
+        }
+        try
+        {
+            var unifiedResult = await _client.V5Api.Account.GetBalancesAsync(BybitAccountType.Unified, ct: cancellationToken);
+            if (unifiedResult.Success)
+            {
+                result.Unified = unifiedResult.Data.List
+                    .SelectMany(account => account.Assets)
+                    .Where(a => (a.Free ?? 0) + (a.Locked ?? 0) > 0)
+                    .Select(a => new AssetBalance
+                    {
+                        Asset = a.Asset,
+                        Free = a.Free ?? 0,
+                        Locked = a.Locked ?? 0,
+                        UsdValue = 0
+                    }).ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting unified account balances from {Exchange}", ExchangeName);
+        }
+        return result;
+    }
+
     public async Task<UnifiedOrder> PlaceOrderAsync(string symbol, OrderSide side, OrderType type, decimal quantity,
         decimal? price = null, TimeInForce timeInForce = TimeInForce.GoodTillCanceled, CancellationToken cancellationToken = default)
     {
