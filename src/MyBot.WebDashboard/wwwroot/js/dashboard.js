@@ -69,14 +69,35 @@ async function loadExchangesSummary() {
         const container = document.getElementById('exchangesSummary');
         container.innerHTML = '';
 
-        data.forEach(exchange => {
+        // Exchanges rendezése: USD érték szerint csökkenő
+        const sortedExchanges = data.sort((a, b) => b.totalUsd - a.totalUsd);
+
+        sortedExchanges.forEach(exchange => {
             let accountsHtml = '';
 
-            Object.entries(exchange.accounts).forEach(([type, account]) => {
-                const assetsSummary = account.balances
+            // Account types rendezése: USD érték szerint csökkenő
+            const sortedAccounts = Object.entries(exchange.accounts)
+                .sort(([, a], [, b]) => b.totalUsd - a.totalUsd);
+
+            sortedAccounts.forEach(([type, account]) => {
+                // Aggregálás coin-onként
+                const aggregated = {};
+                account.balances.forEach(b => {
+                    if (!aggregated[b.asset]) {
+                        aggregated[b.asset] = { asset: b.asset, total: 0, usdValue: 0 };
+                    }
+                    aggregated[b.asset].total += b.free + b.locked;
+                    aggregated[b.asset].usdValue += b.usdValue;
+                });
+
+                const uniqueAssets = Object.values(aggregated).filter(a => a.usdValue > 0);
+
+                const assetsSummary = uniqueAssets
                     .slice(0, 3)
-                    .map(b => `${b.asset}: ${b.total.toFixed(4)}`)
+                    .map(a => `${a.asset}: ${a.total.toFixed(4)}`)
                     .join(', ');
+
+                const moreText = uniqueAssets.length > 3 ? '...' : '';
 
                 accountsHtml += `
                     <div class="account-type" onclick="toggleAssets(this)">
@@ -84,7 +105,7 @@ async function loadExchangesSummary() {
                         <span>$${account.totalUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div class="account-assets">
-                        ${account.balances.map(b => `
+                        ${uniqueAssets.map(b => `
                             <div class="asset-row">
                                 <span><strong>${b.asset}</strong></span>
                                 <span>${b.total.toFixed(6)}</span>
@@ -106,10 +127,10 @@ async function loadExchangesSummary() {
             `;
         });
 
-        // Populate exchange selector for details tab
+        // Populate exchange selector for details tab (rendezve)
         const select = document.getElementById('exchangeSelect');
         if (select.options.length === 0) {
-            select.innerHTML = data.map(ex => `<option value="${ex.name}">${ex.name}</option>`).join('');
+            select.innerHTML = sortedExchanges.map(ex => `<option value="${ex.name}">${ex.name}</option>`).join('');
         }
 
     } catch (error) {
@@ -144,13 +165,38 @@ async function loadExchangeDetails() {
             const balances = data.accounts[key];
             if (!balances || balances.length === 0) return;
 
-            const totalUsd = balances.reduce((sum, b) => sum + b.usdValue, 0);
+            // AGGREGÁLÁS: Coin-onként összesítés (ha több azonos coin van)
+            const aggregated = {};
+            balances.forEach(b => {
+                if (!aggregated[b.asset]) {
+                    aggregated[b.asset] = {
+                        asset: b.asset,
+                        total: 0,
+                        free: 0,
+                        locked: 0,
+                        usdValue: 0
+                    };
+                }
+                aggregated[b.asset].total += b.free + b.locked;
+                aggregated[b.asset].free += b.free;
+                aggregated[b.asset].locked += b.locked;
+                aggregated[b.asset].usdValue += b.usdValue;
+            });
 
-            let assetsHtml = balances.map(b => `
+            // RENDEZÉS: USD érték szerint csökkenő sorrendben
+            const uniqueBalances = Object.values(aggregated)
+                .filter(b => b.usdValue > 0)
+                .sort((a, b) => b.usdValue - a.usdValue);
+
+            if (uniqueBalances.length === 0) return;
+
+            const totalUsd = uniqueBalances.reduce((sum, b) => sum + b.usdValue, 0);
+
+            let assetsHtml = uniqueBalances.map(b => `
                 <div class="asset-row">
                     <span><strong>${b.asset}</strong></span>
                     <span>${b.total.toFixed(6)}</span>
-                    <span class="coin-value">$${b.usdValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span class="coin-value">$${b.usdValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     <span><small>Free: ${b.free.toFixed(6)} | Locked: ${b.locked.toFixed(6)}</small></span>
                 </div>
             `).join('');

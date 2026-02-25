@@ -202,10 +202,17 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
             }
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            // DEBUG: Log raw response to see API structure
+            _logger.LogInformation("Bitget {AccountType} Bot raw response: {Json}", accountType, json);
+
             var data = JsonSerializer.Deserialize<BitgetBotAssetsResponse>(json);
 
             if (data?.Code == "00000" && data?.Data != null)
             {
+                // AGGREGÁLÁS: Coin-onként összesítés (több bot esetén)
+                var aggregated = new Dictionary<string, AssetBalance>();
+
                 foreach (var asset in data.Data)
                 {
                     if (string.IsNullOrEmpty(asset.Equity) ||
@@ -219,17 +226,29 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
                     _ = decimal.TryParse(asset.Available, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var available);
                     _ = decimal.TryParse(asset.Frozen, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var frozen);
 
-                    balances.Add(new AssetBalance
+                    if (!aggregated.ContainsKey(asset.Coin))
                     {
-                        Asset = asset.Coin,
-                        Free = available,
-                        Locked = frozen,
-                        UsdValue = usdValue
-                    });
+                        aggregated[asset.Coin] = new AssetBalance
+                        {
+                            Asset = asset.Coin,
+                            Free = 0,
+                            Locked = 0,
+                            UsdValue = 0
+                        };
+                    }
 
-                    _logger.LogInformation("Bitget {AccountType} Bot - {Coin}: {Equity} (USD: {UsdValue})",
-                        accountType, asset.Coin, equity, usdValue);
+                    aggregated[asset.Coin].Free += available;
+                    aggregated[asset.Coin].Locked += frozen;
+                    aggregated[asset.Coin].UsdValue += usdValue;
+
+                    _logger.LogInformation("Bitget {AccountType} Bot asset entry - {Coin}: equity={Equity}, available={Available}, frozen={Frozen}, usdValue={UsdValue}",
+                        accountType, asset.Coin, equity, available, frozen, usdValue);
                 }
+
+                balances = aggregated.Values.ToList();
+
+                _logger.LogInformation("Bitget {AccountType} Bot AGGREGATED: {Count} unique coins, Total USD: ${Total}",
+                    accountType, balances.Count, balances.Sum(b => b.UsdValue));
             }
             else
             {
