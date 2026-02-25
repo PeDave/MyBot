@@ -17,7 +17,6 @@ using BitgetOrderStatus = Bitget.Net.Enums.V2.OrderStatus;
 using BitgetTimeInForce = Bitget.Net.Enums.V2.TimeInForce;
 using BitgetTradeSide = Bitget.Net.Enums.BitgetOrderSide;
 using BitgetKlineInterval = Bitget.Net.Enums.V2.KlineInterval;
-using BitgetProductTypeV2 = Bitget.Net.Enums.BitgetProductTypeV2;
 
 namespace MyBot.Exchanges.Bitget;
 
@@ -79,44 +78,95 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
 
         try
         {
-            _logger.LogInformation("Fetching all Bitget account balances...");
+            _logger.LogInformation("Fetching all Bitget account balances using all-account-balance API...");
 
-            // 1️⃣ Spot Account
-            _logger.LogInformation("Fetching Bitget Spot balances...");
-            var spotBalances = await GetBalancesAsync(cancellationToken);
-            result.Spot = spotBalances
-                .Where(b => b.Total > 0)
-                .Select(b => new AssetBalance
+            // ────────────────────────────────────────────────────────────────────
+            // 1️⃣ All Account Balance Overview (egyetlen API hívás!)
+            // ────────────────────────────────────────────────────────────────────
+            var endpoint = "/api/v2/account/all-account-balance";
+            var request = CreateAuthenticatedRequest(HttpMethod.Get, endpoint);
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Bitget all-account-balance failed: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                return result;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            var data = JsonSerializer.Deserialize<BitgetAllAccountBalanceResponse>(json);
+
+            if (data?.Code == "00000" && data?.Data != null)
+            {
+                foreach (var account in data.Data)
                 {
-                    Asset = b.Asset,
-                    Free = b.Available,
-                    Locked = b.Locked,
-                    UsdValue = 0
-                }).ToList();
-            _logger.LogInformation("Bitget Spot: {Count} assets", result.Spot.Count);
+                    if (!decimal.TryParse(account.UsdtBalance, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var usdBalance) || usdBalance <= 0)
+                        continue;
 
-            // 2️⃣ USDT-M Futures
-            _logger.LogInformation("Fetching Bitget USDT-M Futures balances...");
-            result.UsdtMFutures = await GetUsdtMFuturesBalancesAsync(cancellationToken);
-            _logger.LogInformation("Bitget USDT-M Futures: {Count} assets", result.UsdtMFutures.Count);
+                    // USDT asset létrehozása (USDT = 1:1 USD)
+                    var asset = new AssetBalance
+                    {
+                        Asset = "USDT",
+                        Free = usdBalance,
+                        Locked = 0,
+                        UsdValue = usdBalance
+                    };
 
-            // 3️⃣ Earn Account
-            _logger.LogInformation("Fetching Bitget Earn account assets...");
-            result.Earn = await GetEarnBalancesAsync(cancellationToken);
-            _logger.LogInformation("Bitget Earn: {Count} assets", result.Earn.Count);
+                    // Account típus szerint besorolás
+                    switch (account.AccountType.ToLowerInvariant())
+                    {
+                        case "spot":
+                            result.Spot.Add(asset);
+                            _logger.LogInformation("Bitget Spot: {Balance} USDT", usdBalance);
+                            break;
+                        case "futures":
+                            result.UsdtMFutures.Add(asset);
+                            _logger.LogInformation("Bitget Futures: {Balance} USDT", usdBalance);
+                            break;
+                        case "funding":
+                            result.Spot.Add(asset); // Funding-ot Spot-hoz adjuk
+                            _logger.LogInformation("Bitget Funding: {Balance} USDT", usdBalance);
+                            break;
+                        case "earn":
+                            result.Earn.Add(asset);
+                            _logger.LogInformation("Bitget Earn: {Balance} USDT", usdBalance);
+                            break;
+                    }
+                }
+            }
+            else
+            {
+                _logger.LogWarning("Bitget all-account-balance returned code: {Code}, msg: {Msg}", data?.Code, data?.Msg);
+            }
 
-            // 4️⃣ Futures Bot (Copy Trading)
-            _logger.LogInformation("Fetching Bitget Futures Bot (Copy Trading) balances...");
-            var futuresBotBalances = await GetBotBalancesAsync(cancellationToken);
-            result.Bot.AddRange(futuresBotBalances);
-            _logger.LogInformation("Bitget Futures Bot: {Count} assets", futuresBotBalances.Count);
+            // ────────────────────────────────────────────────────────────────────
+            // 2️⃣ Bot Account Assets (futures + spot)
+            // ────────────────────────────────────────────────────────────────────
+            var futuresBotAssets = await GetBotAssetsAsync("futures", cancellationToken);
+            result.Bot.AddRange(futuresBotAssets);
+            _logger.LogInformation("Bitget Futures Bot: {Count} assets, Total USD: {Total}",
+                futuresBotAssets.Count,
+                futuresBotAssets.Sum(a => a.UsdValue));
+
+            var spotBotAssets = await GetBotAssetsAsync("spot", cancellationToken);
+            result.Bot.AddRange(spotBotAssets);
+            _logger.LogInformation("Bitget Spot Bot: {Count} assets, Total USD: {Total}",
+                spotBotAssets.Count,
+                spotBotAssets.Sum(a => a.UsdValue));
+
+            // ────────────────────────────────────────────────────────────────────
+            // ÖSSZESÍTÉS
+            // ────────────────────────────────────────────────────────────────────
+            var totalSpot = result.Spot.Sum(a => a.UsdValue);
+            var totalFutures = result.UsdtMFutures.Sum(a => a.UsdValue);
+            var totalEarn = result.Earn.Sum(a => a.UsdValue);
+            var totalBot = result.Bot.Sum(a => a.UsdValue);
+            var grandTotal = totalSpot + totalFutures + totalEarn + totalBot;
 
             _logger.LogInformation(
-                "Bitget total accounts fetched - Spot: {Spot}, Futures: {Futures}, Earn: {Earn}, Bot: {Bot}",
-                result.Spot.Count,
-                result.UsdtMFutures.Count,
-                result.Earn.Count,
-                result.Bot.Count);
+                "Bitget TOTAL - Spot: ${Spot}, Futures: ${Futures}, Earn: ${Earn}, Bot: ${Bot}, GRAND TOTAL: ${GrandTotal}",
+                totalSpot, totalFutures, totalEarn, totalBot, grandTotal);
         }
         catch (Exception ex)
         {
@@ -126,125 +176,70 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
         return result;
     }
 
-    private async Task<List<AssetBalance>> GetUsdtMFuturesBalancesAsync(CancellationToken cancellationToken = default)
+    private async Task<List<AssetBalance>> GetBotAssetsAsync(string accountType, CancellationToken cancellationToken = default)
     {
         var balances = new List<AssetBalance>();
         try
         {
-            var result = await _client.FuturesApiV2.Account.GetBalancesAsync(BitgetProductTypeV2.UsdtFutures, cancellationToken);
-            if (!result.Success)
-            {
-                _logger.LogWarning("Failed to fetch USDT-M Futures balances from Bitget: {Error}", result.Error?.Message);
-                return balances;
-            }
-
-            foreach (var account in result.Data)
-            {
-                if (account.Equity == 0) continue;
-                balances.Add(new AssetBalance
-                {
-                    Asset = account.MarginAsset,
-                    Free = account.Available,
-                    Locked = account.Locked,
-                    UsdValue = 0
-                });
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to fetch USDT-M Futures balances from Bitget");
-        }
-        return balances;
-    }
-
-    private async Task<List<AssetBalance>> GetEarnBalancesAsync(CancellationToken cancellationToken = default)
-    {
-        var balances = new List<AssetBalance>();
-        try
-        {
-            var endpoint = "/api/v2/earn/account/assets";
+            var endpoint = $"/api/v2/account/bot-assets?accountType={accountType}";
             var request = CreateAuthenticatedRequest(HttpMethod.Get, endpoint);
             var response = await _httpClient.SendAsync(request, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogWarning("Bitget Earn account assets failed: {StatusCode} - {Error}", response.StatusCode, errorContent);
+
+                // Ha nincs bot account, az nem hiba
+                if (errorContent.Contains("40007") || response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    _logger.LogInformation("No {AccountType} Bot account found on Bitget", accountType);
+                    return balances;
+                }
+
+                _logger.LogWarning("Bitget {AccountType} Bot assets failed: {StatusCode} - {Error}",
+                    accountType, response.StatusCode, errorContent);
                 return balances;
             }
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken);
-            var data = JsonSerializer.Deserialize<BitgetEarnResponse>(json);
+            var data = JsonSerializer.Deserialize<BitgetBotAssetsResponse>(json);
 
             if (data?.Code == "00000" && data?.Data != null)
             {
                 foreach (var asset in data.Data)
                 {
-                    if (string.IsNullOrEmpty(asset.Amount) || !decimal.TryParse(asset.Amount, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var total) || total == 0)
+                    if (string.IsNullOrEmpty(asset.Equity) ||
+                        !decimal.TryParse(asset.Equity, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var equity) ||
+                        equity <= 0)
+                    {
                         continue;
+                    }
+
+                    var usdValue = decimal.TryParse(asset.UsdtValue, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var usd) ? usd : equity;
+                    _ = decimal.TryParse(asset.Available, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var available);
+                    _ = decimal.TryParse(asset.Frozen, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var frozen);
 
                     balances.Add(new AssetBalance
                     {
-                        Asset = asset.Coin ?? string.Empty,
-                        Free = total,
-                        Locked = 0,
-                        UsdValue = 0
+                        Asset = asset.Coin,
+                        Free = available,
+                        Locked = frozen,
+                        UsdValue = usdValue
                     });
-                }
 
-                _logger.LogInformation("Bitget Earn account assets: {Count} coins fetched", balances.Count);
+                    _logger.LogInformation("Bitget {AccountType} Bot - {Coin}: {Equity} (USD: {UsdValue})",
+                        accountType, asset.Coin, equity, usdValue);
+                }
             }
             else
             {
-                _logger.LogWarning("Bitget Earn account assets returned code: {Code}, msg: {Msg}", data?.Code, data?.Msg);
+                _logger.LogWarning("Bitget {AccountType} Bot assets returned code: {Code}, msg: {Msg}",
+                    accountType, data?.Code, data?.Msg);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to fetch Earn balances from Bitget");
-        }
-        return balances;
-    }
-
-    private async Task<List<AssetBalance>> GetBotBalancesAsync(CancellationToken cancellationToken = default)
-    {
-        var balances = new List<AssetBalance>();
-        try
-        {
-            var endpoint = "/api/v2/copy/mix-trader/account-detail?productType=USDT-FUTURES";
-            var request = CreateAuthenticatedRequest(HttpMethod.Get, endpoint);
-            var response = await _httpClient.SendAsync(request, cancellationToken);
-
-            var json = await response.Content.ReadAsStringAsync(cancellationToken);
-
-            // Ha nincs bot account, a Bitget hibakódot ad vissza a JSON-ban
-            if (!response.IsSuccessStatusCode || json.Contains("\"40007\"") || json.Contains("40007"))
-            {
-                _logger.LogInformation("No Bot account found on Bitget (or not a copy trader)");
-                return balances;
-            }
-
-            var data = JsonSerializer.Deserialize<BitgetBotResponse>(json);
-
-            if (data?.Data != null && !string.IsNullOrEmpty(data.Data.Equity))
-            {
-                if (decimal.TryParse(data.Data.Equity, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var total) && total > 0)
-                {
-                    _ = decimal.TryParse(data.Data.Available, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var available);
-                    _ = decimal.TryParse(data.Data.Locked, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var locked);
-                    balances.Add(new AssetBalance
-                    {
-                        Asset = data.Data.MarginCoin ?? string.Empty,
-                        Free = available,
-                        Locked = locked,
-                        UsdValue = 0
-                    });
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to fetch Bot balances from Bitget");
+            _logger.LogWarning(ex, "Failed to fetch {AccountType} Bot assets from Bitget", accountType);
         }
         return balances;
     }
@@ -271,7 +266,7 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
         return Convert.ToBase64String(hashBytes);
     }
 
-    private class BitgetEarnResponse
+    private class BitgetAllAccountBalanceResponse
     {
         [JsonPropertyName("code")]
         public string? Code { get; set; }
@@ -280,40 +275,49 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
         public string? Msg { get; set; }
 
         [JsonPropertyName("data")]
-        public List<EarnAsset>? Data { get; set; }
+        public List<AccountBalanceItem>? Data { get; set; }
     }
 
-    private class EarnAsset
+    private class AccountBalanceItem
     {
-        [JsonPropertyName("coin")]
-        public string? Coin { get; set; }
+        [JsonPropertyName("accountType")]
+        public string AccountType { get; set; } = string.Empty;
 
-        [JsonPropertyName("amount")]
-        public string? Amount { get; set; }
+        [JsonPropertyName("usdtBalance")]
+        public string UsdtBalance { get; set; } = string.Empty;
     }
 
-    private class BitgetBotResponse
+    private class BitgetBotAssetsResponse
     {
         [JsonPropertyName("code")]
         public string? Code { get; set; }
 
+        [JsonPropertyName("msg")]
+        public string? Msg { get; set; }
+
         [JsonPropertyName("data")]
-        public BotAccount? Data { get; set; }
+        public List<BotAsset>? Data { get; set; }
     }
 
-    private class BotAccount
+    private class BotAsset
     {
-        [JsonPropertyName("marginCoin")]
-        public string? MarginCoin { get; set; }
-
-        [JsonPropertyName("locked")]
-        public string? Locked { get; set; }
+        [JsonPropertyName("coin")]
+        public string Coin { get; set; } = string.Empty;
 
         [JsonPropertyName("available")]
         public string? Available { get; set; }
 
         [JsonPropertyName("equity")]
         public string? Equity { get; set; }
+
+        [JsonPropertyName("frozen")]
+        public string? Frozen { get; set; }
+
+        [JsonPropertyName("bonus")]
+        public string? Bonus { get; set; }
+
+        [JsonPropertyName("usdtValue")]
+        public string? UsdtValue { get; set; }
     }
 
     public async Task<UnifiedOrder> PlaceOrderAsync(string symbol, OrderSide side, OrderType type, decimal quantity,
