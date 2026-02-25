@@ -76,8 +76,13 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
     public async Task<AccountBalances> GetAllAccountBalancesAsync(CancellationToken cancellationToken = default)
     {
         var result = new AccountBalances();
+
         try
         {
+            _logger.LogInformation("Fetching all Bitget account balances...");
+
+            // 1️⃣ Spot Account
+            _logger.LogInformation("Fetching Bitget Spot balances...");
             var spotBalances = await GetBalancesAsync(cancellationToken);
             result.Spot = spotBalances
                 .Where(b => b.Total > 0)
@@ -88,15 +93,35 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
                     Locked = b.Locked,
                     UsdValue = 0
                 }).ToList();
+            _logger.LogInformation("Bitget Spot: {Count} assets", result.Spot.Count);
+
+            // 2️⃣ USDT-M Futures
+            _logger.LogInformation("Fetching Bitget USDT-M Futures balances...");
+            result.UsdtMFutures = await GetUsdtMFuturesBalancesAsync(cancellationToken);
+            _logger.LogInformation("Bitget USDT-M Futures: {Count} assets", result.UsdtMFutures.Count);
+
+            // 3️⃣ Earn Account
+            _logger.LogInformation("Fetching Bitget Earn account assets...");
+            result.Earn = await GetEarnBalancesAsync(cancellationToken);
+            _logger.LogInformation("Bitget Earn: {Count} assets", result.Earn.Count);
+
+            // 4️⃣ Futures Bot (Copy Trading)
+            _logger.LogInformation("Fetching Bitget Futures Bot (Copy Trading) balances...");
+            var futuresBotBalances = await GetBotBalancesAsync(cancellationToken);
+            result.Bot.AddRange(futuresBotBalances);
+            _logger.LogInformation("Bitget Futures Bot: {Count} assets", futuresBotBalances.Count);
+
+            _logger.LogInformation(
+                "Bitget total accounts fetched - Spot: {Spot}, Futures: {Futures}, Earn: {Earn}, Bot: {Bot}",
+                result.Spot.Count,
+                result.UsdtMFutures.Count,
+                result.Earn.Count,
+                result.Bot.Count);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting all account balances from {Exchange}", ExchangeName);
         }
-
-        result.UsdtMFutures = await GetUsdtMFuturesBalancesAsync(cancellationToken);
-        result.Earn = await GetEarnBalancesAsync(cancellationToken);
-        result.Bot = await GetBotBalancesAsync(cancellationToken);
 
         return result;
     }
@@ -137,19 +162,25 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
         var balances = new List<AssetBalance>();
         try
         {
-            var endpoint = "/api/v2/earn/savings/account";
+            var endpoint = "/api/v2/earn/account/assets";
             var request = CreateAuthenticatedRequest(HttpMethod.Get, endpoint);
             var response = await _httpClient.SendAsync(request, cancellationToken);
-            response.EnsureSuccessStatusCode();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning("Bitget Earn account assets failed: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                return balances;
+            }
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken);
             var data = JsonSerializer.Deserialize<BitgetEarnResponse>(json);
 
-            if (data?.Data != null)
+            if (data?.Code == "00000" && data?.Data != null)
             {
                 foreach (var asset in data.Data)
                 {
-                    if (string.IsNullOrEmpty(asset.HoldAmount) || !decimal.TryParse(asset.HoldAmount, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var total) || total == 0)
+                    if (string.IsNullOrEmpty(asset.Amount) || !decimal.TryParse(asset.Amount, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var total) || total == 0)
                         continue;
 
                     balances.Add(new AssetBalance
@@ -160,6 +191,12 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
                         UsdValue = 0
                     });
                 }
+
+                _logger.LogInformation("Bitget Earn account assets: {Count} coins fetched", balances.Count);
+            }
+            else
+            {
+                _logger.LogWarning("Bitget Earn account assets returned code: {Code}, msg: {Msg}", data?.Code, data?.Msg);
             }
         }
         catch (Exception ex)
@@ -174,7 +211,7 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
         var balances = new List<AssetBalance>();
         try
         {
-            var endpoint = "/api/v2/copy/mix-trader/account-detail";
+            var endpoint = "/api/v2/copy/mix-trader/account-detail?productType=USDT-FUTURES";
             var request = CreateAuthenticatedRequest(HttpMethod.Get, endpoint);
             var response = await _httpClient.SendAsync(request, cancellationToken);
 
@@ -239,6 +276,9 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
         [JsonPropertyName("code")]
         public string? Code { get; set; }
 
+        [JsonPropertyName("msg")]
+        public string? Msg { get; set; }
+
         [JsonPropertyName("data")]
         public List<EarnAsset>? Data { get; set; }
     }
@@ -248,8 +288,8 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
         [JsonPropertyName("coin")]
         public string? Coin { get; set; }
 
-        [JsonPropertyName("holdAmount")]
-        public string? HoldAmount { get; set; }
+        [JsonPropertyName("amount")]
+        public string? Amount { get; set; }
     }
 
     private class BitgetBotResponse
