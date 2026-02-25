@@ -1,3 +1,8 @@
+using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Bitget.Net.Clients;
 using Bitget.Net.Enums;
 using CryptoExchange.Net.Authentication;
@@ -12,6 +17,7 @@ using BitgetOrderStatus = Bitget.Net.Enums.V2.OrderStatus;
 using BitgetTimeInForce = Bitget.Net.Enums.V2.TimeInForce;
 using BitgetTradeSide = Bitget.Net.Enums.BitgetOrderSide;
 using BitgetKlineInterval = Bitget.Net.Enums.V2.KlineInterval;
+using BitgetProductTypeV2 = Bitget.Net.Enums.BitgetProductTypeV2;
 
 namespace MyBot.Exchanges.Bitget;
 
@@ -20,12 +26,21 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
 {
     private readonly BitgetRestClient _client;
     private readonly ILogger<BitgetWrapper> _logger;
+    private readonly string _apiKey;
+    private readonly string _apiSecret;
+    private readonly string _passphrase;
+    private readonly HttpClient _httpClient;
+    private const string _baseUrl = "https://api.bitget.com";
 
     public string ExchangeName => "Bitget";
 
     public BitgetWrapper(string apiKey, string apiSecret, string passphrase, ILogger<BitgetWrapper> logger)
     {
+        _apiKey = apiKey;
+        _apiSecret = apiSecret;
+        _passphrase = passphrase;
         _logger = logger;
+        _httpClient = new HttpClient();
         _client = new BitgetRestClient(options =>
         {
             options.ApiCredentials = new ApiCredentials(apiKey, apiSecret, passphrase);
@@ -78,7 +93,187 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
         {
             _logger.LogError(ex, "Error getting all account balances from {Exchange}", ExchangeName);
         }
+
+        result.UsdtMFutures = await GetUsdtMFuturesBalancesAsync(cancellationToken);
+        result.Earn = await GetEarnBalancesAsync(cancellationToken);
+        result.Bot = await GetBotBalancesAsync(cancellationToken);
+
         return result;
+    }
+
+    private async Task<List<AssetBalance>> GetUsdtMFuturesBalancesAsync(CancellationToken cancellationToken = default)
+    {
+        var balances = new List<AssetBalance>();
+        try
+        {
+            var result = await _client.FuturesApiV2.Account.GetBalancesAsync(BitgetProductTypeV2.UsdtFutures, cancellationToken);
+            if (!result.Success)
+            {
+                _logger.LogWarning("Failed to fetch USDT-M Futures balances from Bitget: {Error}", result.Error?.Message);
+                return balances;
+            }
+
+            foreach (var account in result.Data)
+            {
+                if (account.Equity == 0) continue;
+                balances.Add(new AssetBalance
+                {
+                    Asset = account.MarginAsset,
+                    Free = account.Available,
+                    Locked = account.Locked,
+                    UsdValue = 0
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch USDT-M Futures balances from Bitget");
+        }
+        return balances;
+    }
+
+    private async Task<List<AssetBalance>> GetEarnBalancesAsync(CancellationToken cancellationToken = default)
+    {
+        var balances = new List<AssetBalance>();
+        try
+        {
+            var endpoint = "/api/v2/earn/savings/account";
+            var request = CreateAuthenticatedRequest(HttpMethod.Get, endpoint);
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            var data = JsonSerializer.Deserialize<BitgetEarnResponse>(json);
+
+            if (data?.Data != null)
+            {
+                foreach (var asset in data.Data)
+                {
+                    if (string.IsNullOrEmpty(asset.HoldAmount) || !decimal.TryParse(asset.HoldAmount, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var total) || total == 0)
+                        continue;
+
+                    balances.Add(new AssetBalance
+                    {
+                        Asset = asset.Coin ?? string.Empty,
+                        Free = total,
+                        Locked = 0,
+                        UsdValue = 0
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch Earn balances from Bitget");
+        }
+        return balances;
+    }
+
+    private async Task<List<AssetBalance>> GetBotBalancesAsync(CancellationToken cancellationToken = default)
+    {
+        var balances = new List<AssetBalance>();
+        try
+        {
+            var endpoint = "/api/v2/copy/mix-trader/account-detail";
+            var request = CreateAuthenticatedRequest(HttpMethod.Get, endpoint);
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            // Ha nincs bot account, a Bitget hibakódot ad vissza a JSON-ban
+            if (!response.IsSuccessStatusCode || json.Contains("\"40007\"") || json.Contains("40007"))
+            {
+                _logger.LogInformation("No Bot account found on Bitget (or not a copy trader)");
+                return balances;
+            }
+
+            var data = JsonSerializer.Deserialize<BitgetBotResponse>(json);
+
+            if (data?.Data != null && !string.IsNullOrEmpty(data.Data.Equity))
+            {
+                if (decimal.TryParse(data.Data.Equity, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var total) && total > 0)
+                {
+                    _ = decimal.TryParse(data.Data.Available, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var available);
+                    _ = decimal.TryParse(data.Data.Locked, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var locked);
+                    balances.Add(new AssetBalance
+                    {
+                        Asset = data.Data.MarginCoin ?? string.Empty,
+                        Free = available,
+                        Locked = locked,
+                        UsdValue = 0
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch Bot balances from Bitget");
+        }
+        return balances;
+    }
+
+    private HttpRequestMessage CreateAuthenticatedRequest(HttpMethod method, string endpoint)
+    {
+        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+        var signature = GenerateSignature(timestamp, method.Method, endpoint, "");
+        var request = new HttpRequestMessage(method, _baseUrl + endpoint);
+        request.Headers.Add("ACCESS-KEY", _apiKey);
+        request.Headers.Add("ACCESS-SIGN", signature);
+        request.Headers.Add("ACCESS-TIMESTAMP", timestamp);
+        request.Headers.Add("ACCESS-PASSPHRASE", _passphrase);
+        return request;
+    }
+
+    private string GenerateSignature(string timestamp, string method, string endpoint, string body)
+    {
+        var prehash = timestamp + method.ToUpper() + endpoint + body;
+        var keyBytes = Encoding.UTF8.GetBytes(_apiSecret);
+        var messageBytes = Encoding.UTF8.GetBytes(prehash);
+        using var hmac = new HMACSHA256(keyBytes);
+        var hashBytes = hmac.ComputeHash(messageBytes);
+        return Convert.ToBase64String(hashBytes);
+    }
+
+    private class BitgetEarnResponse
+    {
+        [JsonPropertyName("code")]
+        public string? Code { get; set; }
+
+        [JsonPropertyName("data")]
+        public List<EarnAsset>? Data { get; set; }
+    }
+
+    private class EarnAsset
+    {
+        [JsonPropertyName("coin")]
+        public string? Coin { get; set; }
+
+        [JsonPropertyName("holdAmount")]
+        public string? HoldAmount { get; set; }
+    }
+
+    private class BitgetBotResponse
+    {
+        [JsonPropertyName("code")]
+        public string? Code { get; set; }
+
+        [JsonPropertyName("data")]
+        public BotAccount? Data { get; set; }
+    }
+
+    private class BotAccount
+    {
+        [JsonPropertyName("marginCoin")]
+        public string? MarginCoin { get; set; }
+
+        [JsonPropertyName("locked")]
+        public string? Locked { get; set; }
+
+        [JsonPropertyName("available")]
+        public string? Available { get; set; }
+
+        [JsonPropertyName("equity")]
+        public string? Equity { get; set; }
     }
 
     public async Task<UnifiedOrder> PlaceOrderAsync(string symbol, OrderSide side, OrderType type, decimal quantity,
@@ -367,5 +562,9 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
         }
     }
 
-    public void Dispose() => _client.Dispose();
+    public void Dispose()
+    {
+        _client.Dispose();
+        _httpClient.Dispose();
+    }
 }
