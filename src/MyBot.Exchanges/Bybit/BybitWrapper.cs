@@ -85,6 +85,44 @@ public class BybitWrapper : IExchangeWrapper, IDisposable
         {
             _logger.LogError(ex, "Error getting unified balances from {Exchange}", ExchangeName);
         }
+
+        if (result.Unified.Count == 0)
+        {
+            _logger.LogInformation("Bybit UNIFIED returned 0 assets, trying Spot account type as fallback...");
+            try
+            {
+                var spotResult = await _client.V5Api.Account.GetBalancesAsync(BybitAccountType.Spot, ct: cancellationToken);
+                if (spotResult.Success)
+                {
+                    result.Spot = spotResult.Data.List
+                        .SelectMany(account => account.Assets)
+                        .Where(a => (a.Free ?? 0) + (a.Locked ?? 0) > 0)
+                        .Select(a => new AssetBalance
+                        {
+                            Asset = a.Asset,
+                            Free = a.Free ?? 0,
+                            Locked = a.Locked ?? 0,
+                            UsdValue = 0
+                        }).ToList();
+                    _logger.LogInformation("Bybit Spot fallback: {Count} assets", result.Spot.Count);
+                    foreach (var asset in result.Spot)
+                    {
+                        _logger.LogDebug("Bybit Spot asset: {Asset}, Free: {Free}, Locked: {Locked}",
+                            asset.Asset, asset.Free, asset.Locked);
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("Bybit Spot fallback failed: {Error} (code: {Code})",
+                        spotResult.Error?.Message, spotResult.Error?.Code);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting spot balances as fallback from {Exchange}", ExchangeName);
+            }
+        }
+
         return result;
     }
 
