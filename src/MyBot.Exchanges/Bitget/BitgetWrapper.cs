@@ -239,8 +239,9 @@ public class BitgetWrapper : IExchangeWrapper, IDisposable
                         };
                     }
 
-                    aggregated[asset.Coin].Free += available;
-                    aggregated[asset.Coin].Locked += frozen;
+                    // Store equity in Free so that Total = equity (includes unrealized P&L),
+                    // ensuring EnrichWithPrices computes the correct USD value.
+                    aggregated[asset.Coin].Free += equity;
                     aggregated[asset.Coin].UsdValue += usdValue;
 
                     _logger.LogInformation("Bitget {AccountType} Bot asset entry - {Coin}: equity={Equity}, available={Available}, frozen={Frozen}, usdValue={UsdValue}",

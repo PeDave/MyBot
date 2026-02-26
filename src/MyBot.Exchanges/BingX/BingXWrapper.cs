@@ -45,18 +45,35 @@ public class BingXWrapper : IExchangeWrapper, IDisposable
     {
         try
         {
-            var result = await _client.SpotApi.Account.GetBalancesAsync(ct: cancellationToken);
-            if (!result.Success)
-                throw new ExchangeException(ExchangeName, result.Error?.Message ?? "Failed to get balances", result.Error?.Code?.ToString());
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+            var queryString = $"timestamp={timestamp}";
+            var signature = GenerateSignature(queryString);
+            var url = $"{_baseUrl}/openApi/spot/v3/user/balance?{queryString}&signature={signature}";
 
-            return result.Data.Select(b => new UnifiedBalance
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("X-BX-APIKEY", _apiKey);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogDebug("BingX spot v3 balance raw response: {Json}", json);
+
+            var data = JsonSerializer.Deserialize<BingXSpotBalanceResponse>(json);
+            if (data?.Code != 0)
+                throw new ExchangeException(ExchangeName, data?.Msg ?? "Failed to get spot balances", data?.Code.ToString());
+
+            return (data.Data?.Balances ?? []).Select(b =>
             {
-                Asset = b.Asset,
-                Available = b.Free,
-                Locked = b.Locked,
-                Total = b.Total,
-                Exchange = ExchangeName,
-                Timestamp = DateTime.UtcNow
+                var free = decimal.TryParse(b.Free, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var f) ? f : 0;
+                var locked = decimal.TryParse(b.Locked, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var l) ? l : 0;
+                return new UnifiedBalance
+                {
+                    Asset = b.Asset ?? string.Empty,
+                    Available = free,
+                    Locked = locked,
+                    Total = free + locked,
+                    Exchange = ExchangeName,
+                    Timestamp = DateTime.UtcNow
+                };
             });
         }
         catch (ExchangeException) { throw; }
@@ -185,6 +202,36 @@ public class BingXWrapper : IExchangeWrapper, IDisposable
     {
         [JsonPropertyName("coin")]
         public string? Coin { get; set; }
+
+        [JsonPropertyName("free")]
+        public string? Free { get; set; }
+
+        [JsonPropertyName("locked")]
+        public string? Locked { get; set; }
+    }
+
+    private class BingXSpotBalanceResponse
+    {
+        [JsonPropertyName("code")]
+        public int Code { get; set; }
+
+        [JsonPropertyName("msg")]
+        public string? Msg { get; set; }
+
+        [JsonPropertyName("data")]
+        public BingXSpotBalanceData? Data { get; set; }
+    }
+
+    private class BingXSpotBalanceData
+    {
+        [JsonPropertyName("balances")]
+        public List<BingXSpotBalanceItem>? Balances { get; set; }
+    }
+
+    private class BingXSpotBalanceItem
+    {
+        [JsonPropertyName("asset")]
+        public string? Asset { get; set; }
 
         [JsonPropertyName("free")]
         public string? Free { get; set; }
