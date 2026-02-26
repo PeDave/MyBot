@@ -108,7 +108,7 @@ public class BingXWrapper : IExchangeWrapper, IDisposable
             var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
             var queryString = $"timestamp={timestamp}";
             var signature = GenerateSignature(queryString);
-            var url = $"{_baseUrl}/openApi/savings/v1/accounts?{queryString}&signature={signature}";
+            var url = $"{_baseUrl}/openApi/wallets/v1/capital/config/getall?{queryString}&signature={signature}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("X-BX-APIKEY", _apiKey);
@@ -117,37 +117,45 @@ public class BingXWrapper : IExchangeWrapper, IDisposable
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogWarning("BingX wealth balances failed: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                _logger.LogWarning("BingX wallet balances failed: {StatusCode} - {Error}", response.StatusCode, errorContent);
                 return balances;
             }
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken);
-            var data = JsonSerializer.Deserialize<BingXWealthResponse>(json);
+            _logger.LogInformation("BingX wallet raw response: {Json}", json);
+            var data = JsonSerializer.Deserialize<BingXWalletResponse>(json);
 
             if (data?.Code == 0 && data.Data != null)
             {
                 foreach (var item in data.Data)
                 {
-                    if (!decimal.TryParse(item.TotalAmount, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var total) || total <= 0)
+                    var free = decimal.TryParse(item.Free, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var f) ? f : 0;
+                    var locked = decimal.TryParse(item.Locked, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var l) ? l : 0;
+                    if (free + locked == 0) continue;
+                    if (string.IsNullOrEmpty(item.Coin))
+                    {
+                        _logger.LogWarning("BingX wallet returned an asset with null/empty coin, skipping");
                         continue;
-                    _ = decimal.TryParse(item.TodayProfit, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var profit);
+                    }
                     balances.Add(new AssetBalance
                     {
-                        Asset = item.Asset ?? "USDT",
-                        Free = total,
-                        Locked = 0,
-                        UsdValue = total
+                        Asset = item.Coin,
+                        Free = free,
+                        Locked = locked,
+                        UsdValue = 0
                     });
+                    _logger.LogInformation("BingX wallet - {Coin}: free={Free}, locked={Locked}", item.Coin, free, locked);
                 }
+                _logger.LogInformation("BingX wallet: {Count} assets fetched", balances.Count);
             }
             else
             {
-                _logger.LogInformation("BingX wealth response code: {Code}, msg: {Msg}", data?.Code, data?.Msg);
+                _logger.LogWarning("BingX wallet response code: {Code}, msg: {Msg}", data?.Code, data?.Msg);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to fetch wealth balances from {Exchange}", ExchangeName);
+            _logger.LogWarning(ex, "Failed to fetch wallet balances from {Exchange}", ExchangeName);
         }
         return balances;
     }
@@ -161,7 +169,7 @@ public class BingXWrapper : IExchangeWrapper, IDisposable
         return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
     }
 
-    private class BingXWealthResponse
+    private class BingXWalletResponse
     {
         [JsonPropertyName("code")]
         public int Code { get; set; }
@@ -170,19 +178,19 @@ public class BingXWrapper : IExchangeWrapper, IDisposable
         public string? Msg { get; set; }
 
         [JsonPropertyName("data")]
-        public List<BingXWealthItem>? Data { get; set; }
+        public List<BingXWalletItem>? Data { get; set; }
     }
 
-    private class BingXWealthItem
+    private class BingXWalletItem
     {
-        [JsonPropertyName("asset")]
-        public string? Asset { get; set; }
+        [JsonPropertyName("coin")]
+        public string? Coin { get; set; }
 
-        [JsonPropertyName("totalAmount")]
-        public string? TotalAmount { get; set; }
+        [JsonPropertyName("free")]
+        public string? Free { get; set; }
 
-        [JsonPropertyName("todayProfit")]
-        public string? TodayProfit { get; set; }
+        [JsonPropertyName("locked")]
+        public string? Locked { get; set; }
     }
 
     public async Task<UnifiedOrder> PlaceOrderAsync(string symbol, OrderSide side, OrderType type, decimal quantity,
