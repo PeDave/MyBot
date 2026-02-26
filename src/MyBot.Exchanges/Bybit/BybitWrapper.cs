@@ -75,6 +75,11 @@ public class BybitWrapper : IExchangeWrapper, IDisposable
                     UsdValue = 0
                 }).ToList();
             _logger.LogInformation("Bybit UNIFIED: {Count} assets", result.Unified.Count);
+            foreach (var asset in result.Unified)
+            {
+                _logger.LogInformation("Bybit UNIFIED asset: {Asset}, Free: {Free}, Locked: {Locked}",
+                    asset.Asset, asset.Free, asset.Locked);
+            }
         }
         catch (Exception ex)
         {
