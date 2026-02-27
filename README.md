@@ -241,3 +241,51 @@ All wrappers throw typed exceptions from `MyBot.Core.Exceptions`:
 - `ExchangeAuthenticationException` — API key/authentication failures
 - `ExchangeRateLimitException` — rate limit exceeded (includes `RetryAfter`)
 
+
+---
+
+## Új MVP modulok (auth + szignál késleltetés + automation webhook)
+
+A `MyBot.WebDashboard` most tartalmaz egy induló, bővíthető API réteget a kért üzleti modellhez:
+
+- `POST /api/auth/register` – regisztráció (Free/Pro/ProPlus/Admin plan)
+- `POST /api/auth/login` – bejelentkezés, bearer token
+- `GET /api/account/me` – felhasználó profil/plan
+- `POST /api/signals` – új szignál létrehozás (Admin/ProPlus jogosultsággal)
+- `GET /api/signals` – plan alapú szignál feed
+  - Free: 30 perc késleltetés
+  - Pro: 5 perc késleltetés
+  - ProPlus/Admin: valós idejű
+- `POST /api/automation/events` – n8n/AI agent webhook ingest (`x-source`, `x-event-type` headerekkel)
+- `GET /api/automation/events` – legutóbbi automation események listája
+
+### Bővíthetőség más tőzsdékre
+
+A wrapper architektúra már most `IExchangeWrapper` interfészre épül, ezért egy új tőzsde hozzáadásához:
+
+1. Új wrapper osztály a `src/MyBot.Exchanges/<ExchangeName>/` mappában.
+2. `IExchangeWrapper` és opcionálisan `IExchangeWebSocketClient` implementálása.
+3. Regisztráció a `MyBot.WebDashboard/Program.cs` dependency injection részében.
+
+Ez a minta közvetlenül alkalmazható Bitget mellett Bybit, BingX, OKX, Binance stb. irányba.
+
+### VPS deploy (Docker nélkül)
+
+Ubuntu 24.04 LTS VPS esetén javasolt induló lépések:
+
+```bash
+# .NET 8 telepítés
+sudo apt update
+sudo apt install -y dotnet-sdk-8.0
+
+# build + publish
+cd /workspace/MyBot
+dotnet publish src/MyBot.WebDashboard/MyBot.WebDashboard.csproj -c Release -o ./publish/web
+
+# futtatás
+ASPNETCORE_URLS=http://0.0.0.0:5000 dotnet ./publish/web/MyBot.WebDashboard.dll
+```
+
+Nginx reverse proxy-val a `https://labotkripto.com` domain a `localhost:5000` szolgáltatásra irányítható.
+
+> Biztonság: a mostani auth réteg in-memory MVP. Production-ben kötelező adatbázis (PostgreSQL), hashelt+saltolt jelszó (ASP.NET Identity), JWT lejárat/refresh token, rate limit, audit log és HTTPS-only cookie/JWT policy.
