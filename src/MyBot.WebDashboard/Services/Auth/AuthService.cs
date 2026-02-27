@@ -30,13 +30,18 @@ public sealed class AuthService
         if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
             return (false, "Email és jelszó kötelező.");
 
-        if (_users.ContainsKey(request.Email))
+        var normalizedEmail = request.Email.Trim();
+
+        if (_users.ContainsKey(normalizedEmail))
             return (false, "Ez az email már regisztrált.");
+
+        if (!Enum.IsDefined(request.Plan) || request.Plan is SubscriptionPlan.ProPlus or SubscriptionPlan.Admin)
+            return (false, "A választott csomag regisztrációkor nem elérhető.");
 
         var user = new AppUser
         {
             Id = Guid.NewGuid(),
-            Email = request.Email.Trim(),
+            Email = normalizedEmail,
             PasswordHash = HashPassword(request.Password),
             Plan = request.Plan
         };
